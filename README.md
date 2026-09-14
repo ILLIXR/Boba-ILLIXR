@@ -23,23 +23,22 @@ CUDA 13.2, and builds the bundled CUDA extensions for the visible GPU. ILLIXR
 and Android SDK/NDK build prerequisites remain separate; follow the
 [ILLIXR Boba guide](https://github.com/ILLIXR/ILLIXR/blob/boba-immersive-integration/docs/docs/plugin_README/README_boba.md).
 
-This repository is private. Your GitHub account needs access and authenticated
-Git **and Git LFS** downloads. No credentials or signing keys are included.
+This repository is public. HTTPS downloads, including Git LFS assets, do not
+require a GitHub account, SSH key, or access token. Git LFS must be installed.
 
 For a pinned installation, clone ILLIXR and let its installer create the sibling
 Boba-ILLIXR checkout:
 
 ```bash
-git clone --branch boba-immersive-integration git@github.com:ILLIXR/ILLIXR.git
+git clone --branch boba-immersive-integration https://github.com/ILLIXR/ILLIXR.git
 cd ILLIXR
 ./scripts/setup_boba_immersive.sh --install-root ..
 export BOBA_IMMERSIVE_ROOT="$(realpath ../Boba-ILLIXR)"
 ```
 
-The installer defaults to SSH for this private repository and uses Git LFS to
-download Sloth from the same organization repository. If you use an HTTPS
-credential helper instead, pass
-`--repository https://github.com/ILLIXR/Boba-ILLIXR.git`.
+The installer uses public HTTPS by default and Git LFS to download Sloth from
+the same organization repository. If you prefer authenticated SSH, pass
+`--repository git@github.com:ILLIXR/Boba-ILLIXR.git`.
 
 If you have already cloned both repositories side by side:
 
