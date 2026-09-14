@@ -1,10 +1,12 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Boba Immersive Demo — Operator Guide</title>
-  <style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Build ILLIXR and its Quest 3 APK, then run the native Boba demo over Wi-Fi.">
+<title>Boba-ILLIXR — Quest 3 Operator Guide</title>
+<!-- Content rendered from IMMERSIVE_DEMO_OPERATOR_GUIDE.md. Keep commands and headings synchronized. -->
+<style>
     :root {
       color-scheme: light;
       --page: #f4f7fb;
@@ -169,67 +171,16 @@
 
     .note strong { color: var(--amber); }
 
-    .saved-values {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin: 13px 0;
-    }
 
-    .saved-value {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 12px 13px;
-      border: 1px solid #e6ca86;
-      border-radius: 10px;
-      background: #fffaf0;
-    }
 
-    .saved-value small { display: block; color: #7d6842; font-weight: 700; }
     .saved-value code { display: block; margin-top: 2px; color: #503a13; font-weight: 800; }
-    .saved-value button.copy { min-width: 68px; background: #72501a; }
 
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-    }
 
-    .scene-card {
-      padding: 19px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: #fbfcff;
-    }
 
-    .scene-card p { margin: 6px 0 0; color: var(--muted); }
     .scene-card .command-card { margin-bottom: 0; }
 
-    .check-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 18px;
-      padding: 0;
-      list-style: none;
-    }
 
-    .check-grid li {
-      position: relative;
-      margin: 0;
-      padding: 11px 12px 11px 38px;
-      border-radius: 10px;
-      background: #f6f8fc;
-    }
 
-    .check-grid li::before {
-      content: "✓";
-      position: absolute;
-      left: 13px;
-      color: var(--green);
-      font-weight: 900;
-    }
 
     table {
       width: 100%;
@@ -278,7 +229,6 @@
     @media (max-width: 760px) {
       main { width: min(100% - 20px, 1080px); margin-top: 10px; }
       header, section { padding: 20px; border-radius: 14px; }
-      .grid, .saved-values, .check-grid { grid-template-columns: 1fr; }
       .command-head { align-items: flex-start; }
     }
 
@@ -288,179 +238,336 @@
       header, section { break-inside: avoid; box-shadow: none; }
       button.copy, #copy-status { display: none; }
     }
-  </style>
+
+    a { color: var(--blue); text-underline-offset: 3px; }
+    h2, h3 { scroll-margin-top: 20px; }
+    h3 { margin-top: 25px; }
+    p { margin: 12px 0; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    nav a { padding: 7px 11px; border: 1px solid var(--line); border-radius: 8px; background: white; text-decoration: none; font-weight: 650; }
+    .table-scroll { overflow-x: auto; }
+    p code, li code, td code { overflow-wrap: anywhere; }
+    .table-scroll th, .table-scroll td { min-width: 140px; vertical-align: top; }
+    @media (max-width: 760px) {
+      header, section { padding: 17px; }
+      h1 { overflow-wrap: anywhere; }
+      pre { font-size: 0.82rem; }
+      nav a { font-size: 0.86rem; }
+    }
+    @media print {
+      nav { display: none; }
+      header, section { break-inside: auto; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    }
+</style>
 </head>
 <body>
-<p>This guide covers the standalone ALVR/SteamVR demo. For native ILLIXR, see <a href="README.md">README.md</a>.</p>
-  <main>
-    <header>
-      <p class="eyebrow">On-site quick guide</p>
-      <h1>Boba Immersive Demo</h1>
-      <p>Launch ALVR, connect the Quest, then choose the mesh-based Lab or Gaussian Ambulance scene.</p>
-      <div class="badges">
-        <span class="badge">Offline page</span>
-        <span class="badge">Lab + Ambulance</span>
-        <span class="badge">One-click command copy</span>
-      </div>
-    </header>
+<main>
+<header><h1 id="boba-illixr-quest-3-operator-guide">Boba-ILLIXR: Quest 3 operator guide</h1>
+<p>Build and run Boba through the <strong>native ILLIXR Quest app</strong>. The Quest supplies
+headset/controller tracking, the Ubuntu PC simulates and renders Boba, and
+ILLIXR streams stereo video back over the local network. This workflow uses
+ILLIXR directly and does not require ALVR or SteamVR.</p>
+<p>Already built and installed? Jump to <a href="#4-start-a-demo-session">Start a demo session</a>.
+For the same instructions with copy buttons, open the
+<a href="IMMERSIVE_DEMO_OPERATOR_GUIDE.html">offline HTML guide</a>, or run
+<code>./open_operator_guide.sh</code> from Boba-ILLIXR.</p>
+<nav aria-label="Guide sections"><a href="#1-prepare-the-computer-and-repositories">1. Prepare</a><a href="#2-build-the-desktop-illixr-server">2. Desktop build</a><a href="#3-build-and-install-the-quest-3-app">3. Quest app</a><a href="#4-start-a-demo-session">4. Launch</a><a href="#5-operate-and-stop-the-demo">5. Controls</a><a href="#6-troubleshooting-and-logs">6. Troubleshooting</a></nav></header>
+<section><h2 id="1-prepare-the-computer-and-repositories">1. Prepare the computer and repositories</h2>
+<p>Use an Ubuntu x86-64 computer with a working NVIDIA driver and a local X11/OpenGL
+desktop session. The tested machine uses an RTX 5090; the current ILLIXR Boba
+streaming build targets CUDA architecture 120 (Blackwell). Have a Quest 3, both
+controllers, and a USB <strong>data</strong> cable available.</p>
+<p>Install these prerequisites before continuing:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Source and environments</td>
+<td>Git, Git LFS, and initialized Conda</td>
+</tr>
+<tr>
+<td>Desktop GPU build</td>
+<td>CUDA 12.8 in the tested ILLIXR configuration; NVIDIA Video Codec SDK headers, or an <code>nv-codec-headers</code> installation</td>
+</tr>
+<tr>
+<td>Android build on the PC</td>
+<td>JDK 17, Android SDK command-line tools, <code>tar</code>, and <code>unzip</code></td>
+</tr>
+<tr>
+<td>Network</td>
+<td>PC and Quest on the same LAN, with peer-to-peer traffic allowed; Ethernet for the PC is preferable</td>
+</tr>
+</tbody>
+</table></div>
+<p>Follow <a href="https://illixr.github.io/ILLIXR/getting_started/">ILLIXR's dependency guide</a>
+for system prerequisites. Boba setup installs its separate Python/CUDA 13.2
+environment; that environment does not replace the desktop ILLIXR build tools.</p>
+<p>In a directory where you want the two repositories, run:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-1" aria-label="Copy command block 1">Copy command</button></div><pre id="command-1"><code class="language-bash">git clone --branch boba-immersive-integration https://github.com/ILLIXR/ILLIXR.git
+cd ILLIXR
+./scripts/setup_boba_immersive.sh --install-root ..
+</code></pre></div>
+<p>The installer downloads the pinned public Boba-ILLIXR source and Git LFS assets,
+creates <code>boba-cu132</code>, builds its CUDA extensions, and checks the runtime and
+assets. GitHub credentials are unnecessary. The first setup downloads several
+gigabytes; Conda can display <code>Installing pip dependencies: ...working...</code> for
+an extended period while buffering the download output.</p>
+<p>The resulting layout is:</p>
+<div class="command-card"><pre><code class="language-text">workspace/
+  ILLIXR/       # desktop integration, profiles, and Quest app
+  Boba-ILLIXR/  # simulation, renderer, games, assets, and environment setup
+</code></pre></div>
+<p>If you already have both checkouts, run
+<code>./scripts/setup_boba_immersive.sh --source-dir ../Boba-ILLIXR</code> from ILLIXR to
+configure the existing companion without changing its revision or local edits.</p>
+<p>All remaining build and launch commands run from <strong>ILLIXR/</strong>. Replace paths,
+<code>QUEST_SERIAL</code>, and <code>QUEST_WIFI_IP</code> with values for your computer and headset.</p>
+</section>
+<section><h2 id="2-build-the-desktop-illixr-server">2. Build the desktop ILLIXR server</h2>
+<p>Create the ILLIXR build environment once. Skip creation if it already exists.
+The additional <code>protobuf</code> package supplies the host <code>protoc</code> executable needed
+by the Android build helper.</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-2" aria-label="Copy command block 2">Copy command</button></div><pre id="command-2"><code class="language-bash">conda env create -f environment.yml
+conda install -n illixr -c conda-forge protobuf
+conda activate illixr
+protoc --version
+</code></pre></div>
+<p>With that environment active, configure and build the native Boba profile.
+Replace the CUDA and Video Codec SDK paths with your installations:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-3" aria-label="Copy command block 3">Copy command</button></div><pre id="command-3"><code class="language-bash">cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=&quot;$PWD/install&quot; \
+  -DCMAKE_PREFIX_PATH=&quot;$CONDA_PREFIX&quot; \
+  -DYAML_FILE=profiles/boba_quest_native_server.yaml \
+  -DBUILD_DOCS=OFF -DBUILD_DEP_MAP=OFF \
+  -DCMAKE_CUDA_COMPILER=/usr/local/cuda/bin/nvcc \
+  -DVIDEO_CODEC_SDK_PATH=/path/to/nvidia-video-codec-sdk
+cmake --build build --parallel 8
+cmake --install build
+</code></pre></div>
+<p>For <code>nv-codec-headers</code>, set <code>VIDEO_CODEC_SDK_PATH</code> to the prefix containing
+<code>include/ffnvcodec/nvEncodeAPI.h</code>. The installed executable is
+<code>./install/bin/main.opt.exe</code>. Use this native Boba profile when building so its
+frame format matches the Boba-enabled Quest APK below.</p>
+</section>
+<section><h2 id="3-build-and-install-the-quest-3-app">3. Build and install the Quest 3 app</h2>
+<p>The APK is built <strong>on the Ubuntu PC</strong>, then installed on the Quest through USB.</p>
+<h3 id="prepare-the-android-tools">Prepare the Android tools</h3>
+<p>Install Android Studio's SDK tools or the
+<a href="https://developer.android.com/tools/sdkmanager">Android command-line tools</a>.
+Set the SDK and JDK paths in this terminal. The example assumes the command-line
+tools are under <code>cmdline-tools/latest</code>; adjust that path if needed.</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-4" aria-label="Copy command block 4">Copy command</button></div><pre id="command-4"><code class="language-bash">export JAVA_HOME=&quot;/path/to/jdk-17&quot;
+export ANDROID_HOME=&quot;$HOME/Android/Sdk&quot;
+export ANDROID_SDK_ROOT=&quot;$ANDROID_HOME&quot;
+export PATH=&quot;$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH&quot;
 
-    <section>
-      <h2><span class="step-label">1</span>Start ALVR first</h2>
-      <p>Open Terminal 1, copy this block, paste it, and press Enter:</p>
-      <div class="command-card">
-        <div class="command-head">
-          <span>Terminal 1 · ALVR</span>
-          <button class="copy" type="button" data-copy="cmd-alvr">Copy command</button>
-        </div>
-        <pre id="cmd-alvr">cd /path/to/alvr_streamer_linux/bin
-./alvr_dashboard</pre>
-      </div>
-      <ol>
-        <li>Put the computer and Quest on <strong>Emacs</strong>, the default demo network.</li>
-        <li>Start SteamVR, then open ALVR on the Quest.</li>
-        <li>Choose <strong>Trust</strong> in the desktop dashboard.</li>
-        <li>Confirm SteamVR sees the headset and both controllers.</li>
-      </ol>
+sdkmanager --licenses
+sdkmanager &quot;platform-tools&quot; &quot;platforms;android-33&quot; &quot;build-tools;35.0.0&quot; \
+  &quot;ndk;27.2.12479018&quot; &quot;cmake;3.22.1&quot;
+</code></pre></div>
+<p>Review the SDK license prompts. These package versions match this ILLIXR branch;
+Android Studio's SDK Manager can also install them.</p>
+<h3 id="prepare-the-headset-and-signing-key">Prepare the headset and signing key</h3>
+<ol>
+<li>Enable developer mode using <a href="https://developers.meta.com/horizon/documentation/native/android/mobile-device-setup/">Meta's device setup instructions</a>.</li>
+<li>Connect the Quest directly to the PC by USB, put it on, and allow USB debugging.</li>
+<li>Check that ADB recognizes it:</li>
+</ol>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-5" aria-label="Copy command block 5">Copy command</button></div><pre id="command-5"><code class="language-bash">adb devices
+</code></pre></div>
+<p>Expected output includes a line like:</p>
+<div class="command-card"><pre><code class="language-text">QUEST_SERIAL    device
+</code></pre></div>
+<p>The first column is your headset's serial number. If the status is
+<code>unauthorized</code>, accept the debugging prompt in the headset and check again.</p>
+<p>On a new developer machine, create your own signing key once. Reuse an existing
+<code>$HOME/illixr.keystore</code> for updates; the following command leaves it in place:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-6" aria-label="Copy command block 6">Copy command</button></div><pre id="command-6"><code class="language-bash">if [ ! -e &quot;$HOME/illixr.keystore&quot; ]; then
+  keytool -genkeypair -keystore &quot;$HOME/illixr.keystore&quot; \
+    -alias illixr -keyalg RSA -keysize 2048 -validity 10000 \
+    -storepass illixr -keypass illixr
+  chmod 600 &quot;$HOME/illixr.keystore&quot;
+fi
+</code></pre></div>
+<p>Enter your certificate details when prompted. The alias and passwords match
+ILLIXR's existing local research-build configuration. Keep the keystore outside
+the source repositories.</p>
+<h3 id="build-and-install-the-release-apk">Build and install the Release APK</h3>
+<p>From ILLIXR, with the Android paths above set and the headset authorized, run:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-7" aria-label="Copy command block 7">Copy command</button></div><pre id="command-7"><code class="language-bash">conda activate illixr
+./scripts/install_quest_app.sh --boba --release --no-launch --serial QUEST_SERIAL
+</code></pre></div>
+<p>This prepares ILLIXR's Android dependency submodule, builds
+<code>app/build/outputs/apk/release/app-release.apk</code>, installs <strong>ILLIXRApp</strong>, and prints
+the Quest's Wi-Fi IP address. Save that address for <code>--quest-ip</code> in the next
+step. Use the Boba-enabled Release build for performance testing.</p>
+<p>To reinstall that same APK later without rebuilding:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-8" aria-label="Copy command block 8">Copy command</button></div><pre id="command-8"><code class="language-bash">./scripts/install_quest_app.sh --boba --release --no-build --no-launch --serial QUEST_SERIAL
+</code></pre></div>
+<p>The helper also accepts <code>--android-sdk PATH</code> and <code>--java-home PATH</code> when tools
+are not found automatically. Installation updates the existing app in place.
+If Android reports a signing-key mismatch, use the original key; removing the
+old app is a separate manual choice that deletes its app data.</p>
+</section>
+<section><h2 id="4-start-a-demo-session">4. Start a demo session</h2>
+<ol>
+<li>Put the PC and Quest on the same local network. Use the Quest's current Wi-Fi
+address, which can change after reconnecting. While USB is connected,
+<code>adb -s QUEST_SERIAL shell ip route</code> shows it after <code>src</code> on the Wi-Fi route.</li>
+<li>Put on the Quest, keep it awake, and look naturally forward. Open <strong>ILLIXRApp</strong>
+from the headset's sideloaded apps list before starting the desktop process.</li>
+<li>In a local desktop terminal, run the following from your ILLIXR checkout:</li>
+</ol>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-9" aria-label="Copy command block 9">Copy command</button></div><pre id="command-9"><code class="language-bash">cd /path/to/ILLIXR
+conda activate illixr
+export BOBA_IMMERSIVE_ROOT=&quot;$(realpath ../Boba-ILLIXR)&quot;
+export LD_LIBRARY_PATH=&quot;$PWD/install/lib:$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}&quot;
+unset BOBA_DEMO_LAUNCHER
 
-      <div class="note">
-        <h3>Using a network other than Emacs?</h3>
-        <p>First compare the connection values below with the <strong>Hostname</strong> and <strong>IP address</strong> shown inside ALVR on the Quest.</p>
-        <div class="saved-values">
-          <div class="saved-value">
-            <span><small>Current hostname</small><code id="saved-hostname">7921.client</code></span>
-            <button class="copy" type="button" data-copy="saved-hostname">Copy</button>
-          </div>
-          <div class="saved-value">
-            <span><small>Current IP address</small><code id="saved-ip">10.200.15.239</code></span>
-            <button class="copy" type="button" data-copy="saved-ip">Copy</button>
-          </div>
-        </div>
-        <ol>
-          <li>Connect the computer and Quest to the same low-latency network.</li>
-          <li>In the desktop dashboard, open <strong>Devices → Edit connection</strong>.</li>
-          <li>Replace both fields with the exact values displayed inside the Quest.</li>
-          <li>Use <strong>Add new</strong> only to keep another known IP, then choose <strong>Save</strong> and <strong>Trust</strong>.</li>
-        </ol>
-        <p><strong>Important:</strong> enter the Quest values, not the computer hostname or IP.</p>
-      </div>
-    </section>
-
-    <section>
-      <h2><span class="step-label">2</span>Prepare for alignment</h2>
-      <ul class="check-grid">
-        <li>Computer is on power</li>
-        <li>Quest and controller batteries are ready</li>
-        <li>Wearer is standing with the Quest on and upright</li>
-        <li>Wearer is looking naturally forward</li>
-      </ul>
-      <div class="note"><strong>Do not launch with the headset on a desk.</strong> Startup captures its position and direction.</div>
-      <p>The launcher uses an explicit <strong>standing</strong> layout; automatic posture detection is not enabled. Add <code>--immersive_start_posture seated</code> only for a seated test.</p>
-    </section>
-
-    <section>
-      <h2><span class="step-label">3</span>Choose and launch one scene</h2>
-      <div class="grid">
-        <article class="scene-card">
-          <h3>Lab <small>· default mesh scene</small></h3>
-          <p>Rope game with course, targets, timer, and HUD. Sloth is free play. Standing eye height is 1.55 m above the floor; the table is 0.82 m below and 0.78 m ahead.</p>
-          <div class="command-card">
-            <div class="command-head">
-              <span>Terminal 2 · Lab</span>
-              <button class="copy" type="button" data-copy="cmd-lab">Copy command</button>
-            </div>
-            <pre id="cmd-lab">source $HOME/miniconda3/etc/profile.d/conda.sh
-cd /path/to/Boba-ILLIXR
-./boba_app.sh</pre>
-          </div>
-        </article>
-
-        <article class="scene-card">
-          <h3>Ambulance <small>· Gaussian scene</small></h3>
-          <p>Clear-aisle view facing Rope on the stretcher. Standing eye height is 1.45 m above the floor with a 30° downward view. Rope and Sloth are both free play.</p>
-          <div class="command-card">
-            <div class="command-head">
-              <span>Terminal 2 · Ambulance</span>
-              <button class="copy" type="button" data-copy="cmd-ambulance">Copy command</button>
-            </div>
-            <pre id="cmd-ambulance">source $HOME/miniconda3/etc/profile.d/conda.sh
-cd /path/to/Boba-ILLIXR
-./boba_app.sh --scene ambulance</pre>
-          </div>
-        </article>
-      </div>
-      <p>The launcher selects <code>boba-cu132</code> automatically. To change scenes, stop and relaunch. Rope and Sloth can be switched without restarting.</p>
-    </section>
-
-    <section>
-      <h2><span class="step-label">4</span>Finish startup</h2>
-      <ol>
-        <li>Press either trigger once for each tutorial page.</li>
-        <li>On the last page, wait for <strong>Ready</strong>, release the trigger, then press it once.</li>
-        <li>Check that Rope and the chosen scene appear in the headset.</li>
-        <li>Check both controller rays and test one grab and release.</li>
-        <li>Check that the desktop window shows the scene, object, rays, and headset.</li>
-      </ol>
-      <p>The first launch can pause while CUDA or the OpenXR bridge compiles. Keep the terminal open while it continues printing output.</p>
-    </section>
-
-    <section>
-      <h2>Headset controls</h2>
-      <table>
-        <thead><tr><th>Control</th><th>Action</th></tr></thead>
-        <tbody>
-          <tr><td>Trigger</td><td>Advance tutorial; hold to grab, release to drop</td></tr>
-          <tr><td>Point at marker</td><td>Select that interaction point automatically</td></tr>
-          <tr><td>X or A</td><td>Optionally cycle interaction points</td></tr>
-          <tr><td>Y or B · short</td><td>Restart Lab Rope or reset the current free-play object</td></tr>
-          <tr><td>Y or B · hold 0.75 s</td><td>Open the Rope/Sloth selector</td></tr>
-          <tr><td>Joystick up/down</td><td>Move one selector row; recenter before moving again</td></tr>
-          <tr><td>Trigger in selector</td><td>Confirm highlighted object</td></tr>
-          <tr><td>Y or B in selector</td><td>Cancel selector</td></tr>
-          <tr><td>Grip · hold</td><td>Exit demo</td></tr>
-        </tbody>
-      </table>
-      <p>Wait for the loading overlay when switching Rope or Sloth. Do not press the selection buttons repeatedly.</p>
-    </section>
-
-    <section class="stop">
-      <h2>Reset or stop</h2>
-      <ul>
-        <li>Between attendees, short-press <strong>Y or B</strong>. In Ambulance, this returns the object to the stretcher.</li>
-        <li>If a new wearer has a badly tilted view, relaunch while they wear the upright headset and look forward.</li>
-        <li>To stop normally, press <strong>Ctrl+C</strong> in Terminal 2. Holding either Grip also exits.</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>Quick troubleshooting</h2>
-      <details>
-        <summary>Headset or controllers are not detected</summary>
-        <p>Stop the demo. Confirm ALVR is open on the Quest, the dashboard trusts it, and SteamVR shows the headset and both controllers. Then relaunch.</p>
-      </details>
-      <details>
-        <summary>Initial view is tilted or displaced</summary>
-        <p>Stop, recenter SteamVR/ALVR if needed, and relaunch with the headset worn upright while the wearer looks forward.</p>
-      </details>
-      <details>
-        <summary>Final tutorial page does not continue</summary>
-        <p>Wait for <strong>Ready</strong>, fully release the trigger, and press it once.</p>
-      </details>
-      <details>
-        <summary>Object switching appears frozen</summary>
-        <p>Wait for the progress overlay. If the terminal reports an error or stops progressing, press Ctrl+C, verify SteamVR remains connected, and relaunch the same scene.</p>
-      </details>
-    </section>
-
-    <footer>
-      This page works without Internet access. See the
-      <a href="IMMERSIVE_DEMO_OPERATOR_GUIDE.md">plain Markdown guide</a>
-      for the same operating procedure.
-    </footer>
-  </main>
-
-  <div id="copy-status" role="status" aria-live="polite">Copied</div>
-
-  <script>
+./install/bin/main.opt.exe \
+  --yaml=profiles/boba_quest_native_server.yaml \
+  --duration=600 \
+  --quest-ip QUEST_WIFI_IP \
+  2&gt;&amp;1 | tee boba-desktop.log
+</code></pre></div>
+<p>ILLIXR starts Boba automatically. Clearing <code>BOBA_DEMO_LAUNCHER</code> selects the
+default <strong>Rope in the Lab</strong>. The command allows ten minutes of testing; press
+Ctrl+C to stop earlier. Without <code>--duration</code>, ILLIXR defaults to 60 seconds and
+then closes the desktop demo and Quest app. Reopen ILLIXRApp before each run.</p>
+<p>If you cannot find the installed app in the headset menu, launch it over USB:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-10" aria-label="Copy command block 10">Copy command</button></div><pre id="command-10"><code class="language-bash">adb -s QUEST_SERIAL shell am start \
+  -n com.example.native_activity/com.example.ILLIXR.ILLIXRNativeActivity
+</code></pre></div>
+<p>USB can be disconnected after installation. Tracking and video use the local
+network. Allow the PC to receive TCP <strong>9001</strong> and UDP <strong>9003</strong>, and the Quest to
+receive the startup handshake on UDP <strong>9010</strong>. Guest Wi-Fi/client isolation can
+prevent the two devices from reaching each other.</p>
+<p>The native profile hides the desktop spectator view to reduce rendering work.
+If needed, run <code>export BOBA_DESKTOP_PREVIEW=true</code> before launching; use
+<code>unset BOBA_DESKTOP_PREVIEW</code> to return to the default. A valid X11 <code>DISPLAY</code> is
+still needed by Boba even with the spectator hidden.</p>
+</section>
+<section><h2 id="5-operate-and-stop-the-demo">5. Operate and stop the demo</h2>
+<p>Press a trigger to advance each tutorial page. On the final page, wait for
+<strong>Ready</strong>, release the trigger, and press it again. Confirm that Rope appears,
+head movement updates the view, and both controller rays track correctly.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trigger</td>
+<td>Advance the tutorial; hold to grab, release to drop</td>
+</tr>
+<tr>
+<td>Point at a marker</td>
+<td>Select an interaction point</td>
+</tr>
+<tr>
+<td>X or A</td>
+<td>Cycle interaction points</td>
+</tr>
+<tr>
+<td>Y or B, short press</td>
+<td>Restart the Rope course or reset the current object</td>
+</tr>
+<tr>
+<td>Y or B, hold</td>
+<td>Open the Rope/Sloth selector</td>
+</tr>
+<tr>
+<td>Joystick up/down in selector</td>
+<td>Change the highlighted object; recenter between moves</td>
+</tr>
+<tr>
+<td>Trigger in selector</td>
+<td>Confirm the selection</td>
+</tr>
+<tr>
+<td>Y or B in selector</td>
+<td>Cancel the selection</td>
+</tr>
+<tr>
+<td>Grip, hold</td>
+<td>Exit the demo</td>
+</tr>
+</tbody>
+</table></div>
+<p>Wait for the loading overlay when switching Rope → Sloth → Rope. For a new
+wearer, reset the current object with Y or B. If the view is misaligned, stop
+and relaunch while the wearer is upright and looking forward.</p>
+<p>Stop with <strong>Ctrl+C</strong> in the desktop terminal, or hold a controller grip. After
+an in-headset exit, stop any remaining desktop session with Ctrl+C before
+starting another run.</p>
+</section>
+<section><h2 id="6-troubleshooting-and-logs">6. Troubleshooting and logs</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ADB shows no device or <code>unauthorized</code></td>
+<td>Check the USB data cable, developer mode, and the debugging prompt inside the Quest.</td>
+</tr>
+<tr>
+<td>Setup cannot find Conda or <code>boba-cu132</code></td>
+<td>Initialize Conda and rerun <code>setup_boba_immersive.sh</code>; use the same <code>CONDA_ENVS_PATH</code> for setup and launch if you customized it.</td>
+</tr>
+<tr>
+<td>App build cannot find <code>protoc</code>, SDK, or JDK</td>
+<td>Activate <code>illixr</code>, run <code>protoc --version</code>, and check the Android tool paths and package versions from step 3.</td>
+</tr>
+<tr>
+<td>Desktop waits for the Quest</td>
+<td>Reopen ILLIXRApp, keep the headset awake, check its current IP, and verify local network/firewall connectivity.</td>
+</tr>
+<tr>
+<td>Demo closes after about a minute</td>
+<td>Include <code>--duration=600</code> in the desktop command.</td>
+</tr>
+<tr>
+<td>View stutters</td>
+<td>Confirm the APK was built with <code>--boba --release</code>, keep the spectator view disabled, and compare desktop and Quest logs.</td>
+</tr>
+<tr>
+<td>Tutorial or object switch appears paused</td>
+<td>Wait for the loading progress; check the desktop log for errors. If it stops progressing, stop, reopen ILLIXRApp, and relaunch.</td>
+</tr>
+<tr>
+<td>OpenGL or <code>DISPLAY</code> error</td>
+<td>Launch from the PC's X11 desktop session with access to the NVIDIA GPU.</td>
+</tr>
+</tbody>
+</table></div>
+<p>For diagnosis, leave USB connected and capture the Quest log in another
+terminal with the Android tools on its <code>PATH</code>:</p>
+<div class="command-card"><div class="command-head"><span>Terminal</span><button class="copy" type="button" data-copy="command-11" aria-label="Copy command block 11">Copy command</button></div><pre id="command-11"><code class="language-bash">adb -s QUEST_SERIAL logcat -T 1 -v threadtime &gt; quest-boba.log
+</code></pre></div>
+<p>The launch command already saves <code>boba-desktop.log</code>. Compare desktop
+<code>Boba native stream</code> FPS/encode/send times with Quest <code>Boba receiver</code> and
+<code>Decoder FPS</code> messages. Stop log capture with Ctrl+C. See the
+<a href="https://github.com/ILLIXR/ILLIXR/blob/boba-immersive-integration/docs/docs/plugin_README/README_boba.md">ILLIXR Boba integration guide</a>
+for protocol settings and development checks.</p>
+</section>
+<footer>This guide can be read offline. <a href="IMMERSIVE_DEMO_OPERATOR_GUIDE.md">Markdown version</a> · <a href="README.md">Repository overview</a></footer>
+</main>
+<div id="copy-status" role="status" aria-live="polite">Copied</div>
+<script>
     const statusBubble = document.getElementById("copy-status");
     let statusTimer;
 
