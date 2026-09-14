@@ -1,0 +1,67 @@
+__pycache__/
+*.py[cod]
+*.so
+*.log
+*.txt
+!requirements-demo.txt
+*.npy
+*.npz
+*.pkl
+*.png
+*.mp4
+*.egg-info/
+build/
+dist/
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.cache/
+.venv/
+venv/
+ENV/
+
+# Large runtime assets expected to exist separately
+data/
+experiments/
+experiments_optimization/
+gaussian_output/
+gaussian_output_dynamic/
+temp_experiments/
+recorded_experiments/
+# gaussian_splatting source is tracked; compiled artifacts remain covered by the
+# generic ignore rules above (for example *.so, *.py[cod], __pycache__/, build/).
+pytorch3d/
+
+# Built probe binaries
+linux_pose_probe/openxr_headset_pose_probe
+linux_pose_probe/openxr_hand_controller_probe
+linux_pose_probe/openxr_hand_joint_stream
+linux_pose_probe/openxr_controller_stream
+linux_pose_probe/openxr_frame_panel
+linux_pose_probe/openxr_immersive_bridge
+linux_pose_probe/boba_immersive_demo
+linux_pose_probe/boba_immersive_bridge
+tools/compare_immersive_gpu_path_smoke/
+tools/compare_immersive_gpu_path_smoke_repair/
+
+# Track packaged runtime assets and vendored scene assets in this repo.
+!assets/
+!assets/**/
+!assets/**/*.json
+!assets/**/*.pkl
+!assets/**/*.ply
+!assets/**/*.pth
+!assets/**/*.png
+!assets/**/*.obj
+!assets/**/*.mtl
+!assets/**/*.jpg
+!assets/**/*.glb
+
+# Track immersive scene manifest but keep downloaded assets ignored.
+!data/
+data/*
+!data/open_scene_assets/
+data/open_scene_assets/*
+!data/open_scene_assets/simple_lab/
+data/open_scene_assets/simple_lab/*
+!data/open_scene_assets/simple_lab/manifest.json
