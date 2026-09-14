@@ -53,6 +53,7 @@ assert torch.version.cuda == "13.2", torch.version.cuda' ||
 cd "${REPO_ROOT}"
 run_boba python tools/fetch_demo_case_assets.py
 run_boba python -m pip install --disable-pip-version-check --no-input -r requirements-demo.txt
+run_boba python -m pip check
 
 # Rebuild after source, checkout location, or GPU architecture changes. Hash
 # tracked build inputs, including local edits, without hashing compiled output.
@@ -88,6 +89,8 @@ else
 fi
 
 run_boba python -c 'import gaussian_splatting._gsplat_vendor'
+log 'Checking the full simulation and renderer import path.'
+run_boba python -c 'from qqtt import InvPhyTrainerWarp; import pycuda.gl'
 if [[ ${FETCH_GARDEN} -eq 1 ]]; then
     run_boba python tools/fetch_demo_case_assets.py --scene garden --fetch
 fi
