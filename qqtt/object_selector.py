@@ -135,7 +135,8 @@ def selector_button_rects(is_open: bool):
     return {
         "rope_game": (0.06, 0.23, 0.94, 0.43),
         "sloth": (0.06, 0.47, 0.94, 0.67),
-        "close": (0.68, 0.76, 0.94, 0.92),
+        "exit": (0.06, 0.74, 0.60, 0.89),
+        "close": (0.68, 0.74, 0.94, 0.89),
     }
 
 
@@ -165,7 +166,7 @@ def selector_panel_world_corners(center_eye_pose_world, *, is_open):
         return None
     width, height = (0.64, 0.40) if is_open else (0.28, 0.081)
     right, up, back = pose[:3, 0], pose[:3, 1], pose[:3, 2]
-    top_right = pose[:3, 3] - 0.85 * back + 0.65 * right + 0.50 * up
+    top_right = pose[:3, 3] - 0.85 * back + 0.56 * right + 0.40 * up
     center = top_right - width / 2 * right - height / 2 * up
     return np.asarray([
         center - width / 2 * right + height / 2 * up,
@@ -188,7 +189,7 @@ def selector_panel_texture(selector, *, hovered_targets=(), font, title_font, fi
         draw.text((width / 2, 42), completion or "Game Select",
                   font=title_font, anchor="mm", fill=(245, 248, 255, 255))
     labels = {choice.case_name: choice.label for choice in selector.choices}
-    labels.update(open="Game Select", close="Close")
+    labels.update(open="Game Select", close="Close", exit="Exit Game")
     highlighted = selector.highlighted_case if is_open else None
     for target, rect in selector_button_rects(is_open).items():
         left, top, right, bottom = (rect[0] * width, rect[1] * height, rect[2] * width, rect[3] * height)
@@ -204,8 +205,8 @@ def selector_panel_texture(selector, *, hovered_targets=(), font, title_font, fi
         draw.text(((left + right) / 2, label_y), labels[target],
                   font=font if is_open else title_font, anchor="mm", fill=(255, 255, 255, 255))
     if is_open:
-        draw.text((40, 334), "Point + pinch / trigger", font=font,
-                  anchor="lm", fill=(184, 198, 218, 255))
+        draw.text((width / 2, 382), "Point + pinch / trigger", font=font,
+                  anchor="mm", fill=(184, 198, 218, 255))
     return {
         "texture_rgba": np.asarray(image, dtype=np.uint8).copy(),
         "width_px": width,
@@ -259,7 +260,7 @@ class RuntimeObjectSelector:
 
     @property
     def blocks_object_input(self) -> bool:
-        return self.mode in {"open", "loading", "error"}
+        return self.mode in {"open", "loading", "error", "exiting"}
 
     @property
     def highlighted_case(self) -> str:
@@ -312,6 +313,7 @@ class RuntimeObjectSelector:
             "reset_requested": False,
             "reset_sources": [],
             "selected_case": None,
+            "exit_requested": False,
             "highlighted_index": self.highlighted_index,
             "consumed_sources": [],
         }
@@ -364,6 +366,10 @@ class RuntimeObjectSelector:
             elif self.mode == "open" and target == "close":
                 self.close(now=now)
                 events["cancelled"] = True
+                pointer_action = True
+            elif self.mode == "open" and target == "exit":
+                self.mode = "exiting"
+                events["exit_requested"] = True
                 pointer_action = True
             elif self.mode == "open" and target in {choice.case_name for choice in self.choices}:
                 self.highlighted_index = next(i for i, choice in enumerate(self.choices) if choice.case_name == target)

@@ -268,6 +268,44 @@ def test_hand_can_open_select_and_close_without_controller_buttons():
     assert selected["selected_case"] == "sloth" and selector.mode == "loading"
 
 
+@pytest.mark.parametrize("source", ["left", "right"])
+@pytest.mark.parametrize("hand", [True, False])
+def test_menu_exit_requires_fresh_same_source_click_and_fires_once(source, hand):
+    selector = RuntimeObjectSelector("sloth")
+    neutral = _buttons(hand=hand)
+    pressed = _buttons(hand=hand, **{source: True})
+    selector.update(0, neutral)
+    assert selector.update(0.1, pressed, pointer_targets={source: "open"})["opened"]
+    # Holding the opening pinch/trigger over Exit must not quit.
+    assert not selector.update(0.2, pressed, pointer_targets={source: "exit"})["exit_requested"]
+    selector.update(0.3, neutral)
+    event = selector.update(0.4, pressed, pointer_targets={source: "exit"})
+    assert event["exit_requested"] and event["selected_case"] is None
+    assert event["consumed_sources"] == [source]
+    assert selector.mode == "exiting" and selector.blocks_object_input
+    for now, buttons in ((0.5, pressed), (0.6, neutral), (0.7, pressed)):
+        event = selector.update(now, buttons, pointer_targets={source: "exit"})
+        assert not event["exit_requested"] and event["selected_case"] is None
+
+
+def test_other_hand_hovering_exit_does_not_turn_off_panel_pinch_into_quit():
+    selector = RuntimeObjectSelector("sloth")
+    selector.update(0, _buttons())
+    selector.update(0.1, _buttons(left=True), pointer_targets={"left": "open"})
+    selector.update(0.2, _buttons())
+    event = selector.update(0.3, _buttons(right=True), pointer_targets={"left": "exit"})
+    assert not event["exit_requested"] and selector.is_open
+
+
+@pytest.mark.parametrize("mode", ["closed", "loading", "error"])
+def test_exit_only_works_in_open_menu(mode):
+    selector = RuntimeObjectSelector("sloth")
+    selector.update(0, _buttons())
+    selector.mode = mode
+    event = selector.update(1, _buttons(right=True), pointer_targets={"right": "exit"})
+    assert not event["exit_requested"] and selector.mode == mode
+
+
 def test_off_panel_pinch_and_other_hands_hover_do_not_select():
     selector = RuntimeObjectSelector("rope_game")
     selector.update(0, _buttons())
@@ -466,10 +504,9 @@ def test_game_select_stays_upper_right_and_expands_from_same_corner():
     closed = selector_panel_world_corners(pose, is_open=False)
     opened = selector_panel_world_corners(pose, is_open=True)
     np.testing.assert_allclose(closed[1], opened[1], atol=1e-6)
-    # Entire expanded panel is right of and above the gaze center.
-    assert np.all(opened[:, :2] > 0)
-    assert closed[:, 0].mean() > 0.45
-    assert closed[:, 1].mean() > 0.4
+    # Keep the button upper-right, with more space to the top/right view edges.
+    assert 0.40 < closed[:, 0].mean() < 0.45
+    assert 0.33 < closed[:, 1].mean() < 0.39
     # Both eyes retain a margin at the probe's 86-degree field of view.
     for eye_x in (-0.032, 0.032):
         for corners in (closed, opened):
@@ -528,7 +565,7 @@ def test_menu_uses_displayed_hand_fingertip_with_calibration_and_head_motion(mon
             assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open,
                                                         interaction_state={"grab": True}) == target
         # Moving away clears the hover and restores the free cursor immediately.
-        preview = {"ray_end_world": torch.tensor(pose[:3, 3] - pose[:3, 2])}
+        preview = {"ray_end_world": torch.tensor(pose[:3, 3] - pose[:3, 2] - pose[:3, 0])}
         assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open) is None
         assert not world["hand_menu_hovered"]
         np.testing.assert_allclose(world["hand_pointer_target_world"], preview["ray_end_world"])

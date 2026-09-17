@@ -854,7 +854,7 @@ def slide_hand_controls() -> Image.Image:
     card_x1 = right_rect[2] - PANEL_BODY_PAD_X
     for top, bottom, title, text in (
         (288, 478, "Game menu",
-         "Aim your fingertip at Game Select in the upper-right. When it lights up, pinch and release. Choose Rope, Sloth or Close."),
+         "Point at Game Select and pinch when it lights up. Choose Rope or Sloth, Close the menu, or select Exit Game to quit."),
         (498, 688, "Keep each hand visible",
          "Hiding a hand releases its grab. Show it open before pinching again."),
         (708, 912, "Start with open hands",

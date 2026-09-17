@@ -40886,6 +40886,11 @@ class InvPhyTrainerWarp:
                         hovered_index=selector_hovered_index,
                         pointer_targets=selector_pointer_targets,
                     )
+                    if selector_events.get("exit_requested", False):
+                        print("[quest_display] exit requested from Game Select", flush=True)
+                        # Reuse the same loop exit and resource cleanup as the
+                        # controller grip hold, including native client shutdown.
+                        break
                     if bool(selector_events.get("opened", False)):
                         for selector_source in ("left", "right"):
                             self._clear_live_controller_interaction(

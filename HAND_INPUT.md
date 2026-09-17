@@ -38,12 +38,15 @@ Game Select menu, and tracking recovery. Pinch and release once per page.
 | Open game selector | Place the fingertip on the upper-right **Game Select** button; pinch when it highlights | Point and trigger, or hold Y/B |
 | Choose Rope or Sloth | Point at its button and pinch | Point and trigger, or joystick/X/A then trigger |
 | Close selector | Point at **Close** and pinch | Point and trigger, or Y/B |
+| Exit demo | Open Game Select, point at **Exit Game**, and pinch | Point and trigger on **Exit Game**, or hold either side grip for 0.75 seconds |
 
-The small Game Select button follows the upper-right of the view. Opening it
+The small Game Select button follows the upper-right of the view, inset toward
+the center for easier reach. Opening it
 expands the panel leftward and downward from that corner and pauses object
 interaction. Move the icon's index fingertip onto a button: its fill turns teal
 and a white fingertip dot appears. Pinch and release to click it, then repeat
-for Rope, Sloth, or Close. Overlapping only the body of the hand icon does not
+for Rope, Sloth, Close, or Exit Game. Close dismisses the menu; Exit Game ends
+the demo and requests native Quest client shutdown. Overlapping only the body of the hand icon does not
 select a button. Release a grabbed object before using that hand for the menu.
 
 Hit testing projects through the displayed hand aim endpoint onto the current
@@ -52,6 +55,8 @@ menu targeting does not substitute a differently calibrated hand ray. A pinch
 clicks only the button under that hand's fingertip. A menu click stays captured
 until release, including after closing the panel or switching objects.
 Selecting the current game restarts it.
+Exit Game requires a fresh pinch/trigger press and cannot fire from the pinch
+held while opening the menu. Ctrl+C in the desktop terminal also stops the demo.
 
 Open the hand before the first pinch. Tracking loss or an input gap longer than
 250 ms releases hand input; an open-hand sample is required before pinching
