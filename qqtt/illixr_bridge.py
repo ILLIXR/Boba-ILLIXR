@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mmap
+from dataclasses import replace
 import os
 from pathlib import Path
 import socket
@@ -43,6 +44,9 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
     FLAG_POSITION_TRACKED = 1 << 3
     FLAG_ORIENTATION_TRACKED = 1 << 4
     FLAG_PRESSED = 1 << 1
+    # quest_controller_profile::hand_interaction; existing packet layout is unchanged.
+    PROFILE_HAND_INTERACTION = 7
+    HAND_INPUT_TIMEOUT_S = 0.25
 
     CONTROLLER_BYTE_COUNT = (
         8
@@ -75,6 +79,8 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
         self._input_stop = threading.Event()
         self._input_error: Optional[str] = None
         self._received_packet_count = 0
+        self._hand_select_armed = {"left": False, "right": False}
+        self._last_input_time = None
 
     @staticmethod
     def _required_path_env(name: str) -> Path:
@@ -251,10 +257,52 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
                 self._input_error = f"{type(exc).__name__}: {exc}"
                 continue
             sample.received_monotonic_s = time.monotonic()
+            sample = self._prepare_hand_input(sample)
             with self._sample_condition:
                 self._latest_sample = sample
                 self._received_packet_count += 1
                 self._sample_condition.notify_all()
+
+    def _prepare_hand_input(self, sample):
+        """Require an open hand after acquisition/loss before accepting a pinch."""
+        now = sample.received_monotonic_s
+        if self._last_input_time is None or now - self._last_input_time > self.HAND_INPUT_TIMEOUT_S:
+            self._hand_select_armed = {"left": False, "right": False}
+        self._last_input_time = now
+        hands = {}
+        for source in ("left", "right"):
+            hand = getattr(sample, source)
+            if not hand.is_hand_tracking:
+                self._hand_select_armed[source] = False
+                hands[source] = hand
+                continue
+            tracked = (hand.active and hand.grip_active and hand.grip_position_tracked
+                       and hand.grip_orientation_tracked and hand.aim_active
+                       and hand.aim_position_valid and hand.aim_orientation_valid
+                       and hand.select_available)
+            if not tracked:
+                self._hand_select_armed[source] = False
+            elif not hand.select_pressed and hand.select_value <= 0.1:
+                self._hand_select_armed[source] = True
+            if not tracked or not self._hand_select_armed[source]:
+                hand = replace(hand, select_pressed=False, select_value=0.0)
+            if not tracked:
+                hand = replace(hand, active=False)
+            hands[source] = hand
+        return replace(sample, **hands)
+
+    def get_latest_sample(self):
+        sample = super().get_latest_sample()
+        if (sample is None or sample.received_monotonic_s is None
+                or time.monotonic() - sample.received_monotonic_s <= self.HAND_INPUT_TIMEOUT_S):
+            return sample
+        # Keep the most recent view for rendering, but release stale hand grabs.
+        return replace(sample, **{
+            source: replace(hand, active=False, select_available=False,
+                            select_pressed=False, select_value=0.0)
+            for source in ("left", "right")
+            if (hand := getattr(sample, source)).is_hand_tracking
+        })
 
     @classmethod
     def _parse_input_packet(cls, packet: bytes) -> LiveImmersiveSample:
@@ -338,7 +386,8 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
 
     @classmethod
     def _parse_controller(cls, packet: bytes, offset: int):
-        available_flags, _profile = struct.unpack_from("<II", packet, offset)
+        available_flags, profile = struct.unpack_from("<II", packet, offset)
+        is_hand_tracking = profile == cls.PROFILE_HAND_INTERACTION
         offset += 8
         grip, offset = cls._parse_pose(packet, offset)
         aim, offset = cls._parse_pose(packet, offset)
@@ -389,7 +438,7 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
             select_available=trigger_active,
             select_pressed=trigger_pressed,
             select_value=trigger_value,
-            select_source="illixr_trigger",
+            select_source="illixr_pinch" if is_hand_tracking else "illixr_trigger",
             anchor_cycle_available=primary_active,
             anchor_cycle_pressed=primary_pressed,
             anchor_cycle_source="illixr_primary",
@@ -420,6 +469,7 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
             aim_orientation_tracked=aim["orientation_tracked"],
             aim_position=aim["position"],
             aim_orientation=aim["orientation"],
+            is_hand_tracking=is_hand_tracking,
         )
         return sample, offset
 

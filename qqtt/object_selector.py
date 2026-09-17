@@ -62,14 +62,12 @@ def _axis(source: Mapping[str, object] | None, field: str) -> float:
     return value if np.isfinite(value) else 0.0
 
 
-def selector_row_from_ray(
+def _quad_uv_from_ray(
     ray_origin: Sequence[float],
     ray_direction: Sequence[float],
     world_corners: Sequence[Sequence[float]],
-    *,
-    row_v_ranges: Sequence[tuple[float, float]] = ((0.25, 0.43), (0.43, 0.61)),
-) -> int | None:
-    """Return the selector row hit by a world-space ray.
+) -> tuple[float, float] | None:
+    """Intersect a world-space ray with the displayed rectangular panel.
 
     ``world_corners`` are ordered top-left, top-right, bottom-right,
     bottom-left.  The normalized ``v`` coordinate increases downward.
@@ -110,14 +108,106 @@ def selector_row_from_ray(
     v = float(np.dot(offset, down) / down_len_sq)
     if u < 0.0 or u > 1.0 or v < 0.0 or v > 1.0:
         return None
+    return u, v
+
+
+def selector_row_from_ray(
+    ray_origin,
+    ray_direction,
+    world_corners,
+    *,
+    row_v_ranges=((0.25, 0.43), (0.43, 0.61)),
+) -> int | None:
+    uv = _quad_uv_from_ray(ray_origin, ray_direction, world_corners)
+    if uv is None:
+        return None
+    _, v = uv
     for row_index, (v_min, v_max) in enumerate(row_v_ranges):
         if float(v_min) <= v < float(v_max):
             return row_index
     return None
 
 
+def selector_button_rects(is_open: bool):
+    """Shared normalized bounds for drawing and hit testing, including gaps."""
+    if not is_open:
+        return {"open": (0.03, 0.08, 0.97, 0.92)}
+    return {
+        "rope_game": (0.06, 0.23, 0.94, 0.43),
+        "sloth": (0.06, 0.47, 0.94, 0.67),
+        "close": (0.68, 0.76, 0.94, 0.92),
+    }
+
+
+def selector_target_from_ray(ray_origin, ray_direction, world_corners, *, is_open):
+    uv = _quad_uv_from_ray(ray_origin, ray_direction, world_corners)
+    if uv is not None:
+        u, v = uv
+        for target, (left, top, right, bottom) in selector_button_rects(is_open).items():
+            if left <= u <= right and top <= v <= bottom:
+                return target
+    return None
+
+
+def selector_panel_world_corners(center_eye_pose_world, *, is_open):
+    """Place the small button lower-right; expand the selector in front of the user."""
+    pose = np.asarray(center_eye_pose_world, dtype=np.float32)
+    if pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
+        return None
+    width, height = (0.64, 0.40) if is_open else (0.28, 0.081)
+    right, up, back = pose[:3, 0], pose[:3, 1], pose[:3, 2]
+    center = pose[:3, 3] - 0.85 * back
+    if not is_open:
+        center = center + 0.34 * right - 0.23 * up
+    return np.asarray([
+        center - width / 2 * right + height / 2 * up,
+        center + width / 2 * right + height / 2 * up,
+        center + width / 2 * right - height / 2 * up,
+        center - width / 2 * right - height / 2 * up,
+    ], dtype=np.float32)
+
+
+def selector_panel_texture(selector, *, hovered_targets=(), font, title_font, finished_time_s=None):
+    """A cached caller can send this texture through the existing modal overlay."""
+    from PIL import Image, ImageDraw
+
+    is_open = selector.is_open
+    width, height = (640, 400) if is_open else (560, 162)
+    image = Image.new("RGBA", (width, height), (17, 24, 35, 242))
+    draw = ImageDraw.Draw(image)
+    completion = f"Finished in {finished_time_s:.1f}s" if finished_time_s is not None else None
+    if is_open:
+        draw.text((width / 2, 42), completion or "Game Select",
+                  font=title_font, anchor="mm", fill=(245, 248, 255, 255))
+    labels = {choice.case_name: choice.label for choice in selector.choices}
+    labels.update(open="Game Select", close="Close")
+    highlighted = selector.highlighted_case if is_open else None
+    for target, rect in selector_button_rects(is_open).items():
+        left, top, right, bottom = (rect[0] * width, rect[1] * height, rect[2] * width, rect[3] * height)
+        hovered = target in hovered_targets
+        color = (42, 124, 150, 255) if hovered else (42, 56, 77, 255)
+        outline = (126, 228, 248, 255) if hovered or target == highlighted else (84, 105, 132, 255)
+        draw.rounded_rectangle((left, top, right, bottom), radius=14, fill=color, outline=outline, width=3)
+        label_y = (top + bottom) / 2
+        if target == "open" and completion:
+            draw.text((width / 2, label_y - 27), completion, font=font,
+                      anchor="mm", fill=(184, 198, 218, 255))
+            label_y += 20
+        draw.text(((left + right) / 2, label_y), labels[target],
+                  font=font if is_open else title_font, anchor="mm", fill=(255, 255, 255, 255))
+    if is_open:
+        draw.text((40, 334), "Point + pinch / trigger", font=font,
+                  anchor="lm", fill=(184, 198, 218, 255))
+    return {
+        "texture_rgba": np.asarray(image, dtype=np.uint8).copy(),
+        "width_px": width,
+        "height_px": height,
+        "aspect_ratio": height / width,
+    }
+
+
 class RuntimeObjectSelector:
-    """State machine for Y/B hold, buttons/sticks, and trigger selection."""
+    """Shared selector for hand-ray buttons and controller buttons/sticks."""
 
     def __init__(
         self,
@@ -153,6 +243,7 @@ class RuntimeObjectSelector:
         self._manual_navigation_active = False
         self._neutral_seen = False
         self._cancel_armed = False
+        self._pointer_captured = {"left": False, "right": False}
 
     @property
     def is_open(self) -> bool:
@@ -202,6 +293,7 @@ class RuntimeObjectSelector:
         buttons_by_source: Mapping[str, Mapping[str, object]],
         *,
         hovered_index: int | None = None,
+        pointer_targets: Mapping[str, str | None] | None = None,
     ) -> dict[str, object]:
         """Advance the selector and return one-frame semantic events."""
 
@@ -213,6 +305,7 @@ class RuntimeObjectSelector:
             "reset_sources": [],
             "selected_case": None,
             "highlighted_index": self.highlighted_index,
+            "consumed_sources": [],
         }
         current = {
             source: {
@@ -237,6 +330,39 @@ class RuntimeObjectSelector:
             }
             for source in ("left", "right")
         }
+        pointer_targets = pointer_targets or {}
+        pointer_action = False
+        for source in ("left", "right"):
+            if not current[source]["select"]:
+                self._pointer_captured[source] = False
+            target = pointer_targets.get(source)
+            if not (edges[source]["select"] and target is not None):
+                continue
+            if (self.mode == "open" and self._manual_navigation_active
+                    and target in {choice.case_name for choice in self.choices}
+                    and not _pressed(buttons_by_source.get(source), "hand")):
+                # Preserve trigger confirmation of a joystick/X/A choice even
+                # when the resting controller ray points at a different row.
+                continue
+            self._pointer_captured[source] = True
+            if pointer_action or not self._neutral_seen or now < self.blocked_until:
+                continue
+            if self.mode == "closed" and target == "open":
+                self.mode = "open"
+                self._manual_navigation_active = False
+                self._cancel_armed = False
+                events["opened"] = True
+                pointer_action = True
+            elif self.mode == "open" and target == "close":
+                self.close(now=now)
+                events["cancelled"] = True
+                pointer_action = True
+            elif self.mode == "open" and target in {choice.case_name for choice in self.choices}:
+                self.highlighted_index = next(i for i, choice in enumerate(self.choices) if choice.case_name == target)
+                self.mode = "loading"
+                events["selected_case"] = target
+                pointer_action = True
+        events["consumed_sources"] = [source for source, captured in self._pointer_captured.items() if captured]
         stick_steps = {"left": 0, "right": 0}
         for source in ("left", "right"):
             vertical = _axis(buttons_by_source.get(source), "vertical")
@@ -254,7 +380,9 @@ class RuntimeObjectSelector:
         if now >= self.blocked_until and self._all_neutral(buttons_by_source):
             self._neutral_seen = True
 
-        if self.mode == "closed":
+        if pointer_action:
+            pass
+        elif self.mode == "closed":
             for source in ("left", "right"):
                 if edges[source]["menu"]:
                     if self._neutral_seen and now >= self.blocked_until:
@@ -344,7 +472,10 @@ class RuntimeObjectSelector:
                             self.highlighted_index + stick_steps[source]
                         ) % len(self.choices)
                         self.hovered_index = None
-                if edges["left"]["select"] or edges["right"]["select"]:
+                # Hands only select a button hit by that same hand's ray. A
+                # resting other hand must not turn an off-panel pinch into a click.
+                if any(edges[source]["select"] and not _pressed(buttons_by_source.get(source), "hand")
+                       and not self._pointer_captured[source] for source in ("left", "right")):
                     selected_index = (
                         self.hovered_index
                         if self.hovered_index is not None

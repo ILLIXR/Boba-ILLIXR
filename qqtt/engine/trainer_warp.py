@@ -106,7 +106,9 @@ from qqtt.object_selector import (
     RuntimeObjectSelector,
     object_choices_for_scene,
     selector_lines,
-    selector_row_from_ray,
+    selector_target_from_ray,
+    selector_panel_world_corners,
+    selector_panel_texture,
 )
 
 
@@ -16025,7 +16027,7 @@ class InvPhyTrainerWarp:
             "finish_modal_world_corners"
         )
         if (
-            state_name == "course_finished"
+            (state_name == "course_finished" or rope_game_overlay_state.get("selector_panel"))
             and finish_modal_lines
             and finish_modal_world_corners is not None
         ):
@@ -16039,9 +16041,9 @@ class InvPhyTrainerWarp:
                 eye_render_state.get("w2c_cv_t"),
             )
             if bool(depth_valid.all().item()):
-                texture_entry = self._build_rope_game_finish_modal_texture_rgba(
-                    finish_modal_lines
-                )
+                texture_entry = rope_game_overlay_state.get("finish_modal_texture")
+                if texture_entry is None:
+                    texture_entry = self._build_rope_game_finish_modal_texture_rgba(finish_modal_lines)
                 finish_modal = self._render_rope_game_finish_modal_quad_roi(
                     frame,
                     texture_entry,
@@ -17772,7 +17774,7 @@ class InvPhyTrainerWarp:
         controller_sample,
         head_alignment,
     ):
-        """Map a physical controller aim ray into the head-aligned room frame."""
+        """Map a controller or hand aim ray into the head-aligned room frame."""
 
         if controller_sample is None or head_alignment is None:
             return None
@@ -32009,7 +32011,7 @@ class InvPhyTrainerWarp:
         if rope_game_overlay_state is None:
             return None
         state_name = str(rope_game_overlay_state.get("state", "")).strip().lower()
-        if state_name != "course_finished":
+        if state_name != "course_finished" and not rope_game_overlay_state.get("selector_panel"):
             return None
         finish_modal_lines = rope_game_overlay_state.get("finish_modal_lines") or []
         finish_modal_world_corners = rope_game_overlay_state.get(
@@ -32017,9 +32019,9 @@ class InvPhyTrainerWarp:
         )
         if not finish_modal_lines or finish_modal_world_corners is None:
             return None
-        texture_entry = self._build_rope_game_finish_modal_texture_rgba(
-            finish_modal_lines
-        )
+        texture_entry = rope_game_overlay_state.get("finish_modal_texture")
+        if texture_entry is None:
+            texture_entry = self._build_rope_game_finish_modal_texture_rgba(finish_modal_lines)
         if texture_entry is None:
             return None
         left_quad = self._project_rope_game_finish_modal_quad_pixels(
@@ -32030,11 +32032,9 @@ class InvPhyTrainerWarp:
             finish_modal_world_corners,
             right_eye_render_state,
         )
-        card_width_m = float(self.ROPE_GAME_FINISH_MODAL_WORLD_WIDTH_M)
-        card_height_m = min(
-            card_width_m * float(texture_entry.get("aspect_ratio", 1.0)),
-            float(self.ROPE_GAME_FINISH_MODAL_WORLD_MAX_HEIGHT_M),
-        )
+        corners = np.asarray(finish_modal_world_corners)
+        card_width_m = float(np.linalg.norm(corners[1] - corners[0]))
+        card_height_m = float(np.linalg.norm(corners[3] - corners[0]))
         return {
             "texture_rgba": texture_entry.get("texture_rgba"),
             "left_quad_pixels": left_quad,
@@ -38592,6 +38592,9 @@ class InvPhyTrainerWarp:
                 scene_name=scene_name,
             )
             object_selector_world_corners = None
+            object_selector_panel_open = False
+            selector_pointer_targets = {}
+            selector_events = {}
             object_selector_frozen_sim_state = None
             object_selector_selected_case = None
             object_selector_switch_after_publish = False
@@ -40642,6 +40645,7 @@ class InvPhyTrainerWarp:
                         ("right", latest_sample.right),
                     ):
                         selector_buttons_by_source[selector_source] = {
+                            "hand": bool(getattr(selector_sample, "is_hand_tracking", False)),
                             "menu": bool(
                                 selector_sample is not None
                                 and getattr(
@@ -40695,7 +40699,8 @@ class InvPhyTrainerWarp:
                             else 0.0,
                         }
                     selector_hovered_index = None
-                    if object_selector.is_open and object_selector_world_corners is not None:
+                    selector_pointer_targets = {}
+                    if object_selector_world_corners is not None:
                         for selector_source in ("left", "right"):
                             selector_ray = (
                                 self._map_live_controller_menu_ray_into_scene(
@@ -40706,18 +40711,32 @@ class InvPhyTrainerWarp:
                             if selector_ray is None:
                                 continue
                             selector_origin, selector_direction = selector_ray
-                            selector_hit = selector_row_from_ray(
+                            selector_target = selector_target_from_ray(
                                 selector_origin,
                                 selector_direction,
                                 object_selector_world_corners,
+                                is_open=object_selector_panel_open,
                             )
-                            if selector_hit is not None:
-                                selector_hovered_index = int(selector_hit)
-                                break
+                            selector_pointer_targets[selector_source] = selector_target
+                            if selector_target in ("rope_game", "sloth"):
+                                selector_hovered_index = next(
+                                    i for i, choice in enumerate(object_selector.choices)
+                                    if choice.case_name == selector_target
+                                )
+                            # The visible UI ray and hit test use the same room
+                            # transform, including when controller calibration differs.
+                            if object_selector.is_open or selector_target is not None:
+                                pointer_world = (current_live_left_controller if selector_source == "left"
+                                                 else current_live_right_controller)
+                                if pointer_world is not None:
+                                    pointer_world["ray_origin"] = torch.as_tensor(selector_origin, device=cfg.device)
+                                    pointer_world["ray_direction"] = torch.as_tensor(selector_direction, device=cfg.device)
+                                    pointer_world["direction"] = pointer_world["ray_direction"]
                     selector_events = object_selector.update(
                         time.perf_counter(),
                         selector_buttons_by_source,
                         hovered_index=selector_hovered_index,
+                        pointer_targets=selector_pointer_targets,
                     )
                     if bool(selector_events.get("opened", False)):
                         for selector_source in ("left", "right"):
@@ -40737,7 +40756,7 @@ class InvPhyTrainerWarp:
                         )
                         object_selector_frozen_sim_state = self._capture_sim_state()
                         print(
-                            "[quest_display] object selector opened via Y/B hold",
+                            "[quest_display] object selector opened",
                             flush=True,
                         )
                     if bool(selector_events.get("cancelled", False)):
@@ -40747,6 +40766,15 @@ class InvPhyTrainerWarp:
                             "[quest_display] object selector cancelled",
                             flush=True,
                         )
+                    # Capture a menu pinch through release, so closing the panel
+                    # cannot also start grabbing the object behind it.
+                    for selector_source in selector_events.get("consumed_sources", []):
+                        pointer_world = (current_live_left_controller if selector_source == "left"
+                                         else current_live_right_controller)
+                        if pointer_world is not None:
+                            pointer_world.update(select_pressed=False, select_value=0.0,
+                                                 select_start_edge=False, select_start_active=False,
+                                                 select_hold_active=False)
                     selected_case = selector_events.get("selected_case")
                     if selected_case is not None:
                         object_selector_selected_case = str(selected_case)
@@ -41448,7 +41476,7 @@ class InvPhyTrainerWarp:
                         left_intrinsic=left_intrinsic,
                         right_intrinsic=right_intrinsic,
                     )
-                if object_selector.blocks_object_input:
+                if object_selector.mode in {"loading", "error"}:
                     object_selector_lines = selector_lines(
                         case_name,
                         object_selector.highlighted_index,
@@ -41472,6 +41500,44 @@ class InvPhyTrainerWarp:
                             object_selector_world_corners
                         ),
                     }
+                    object_selector_panel_open = False
+                else:
+                    # Reuse the existing stereo modal texture transport for both
+                    # the floating button and expanded selector.
+                    center_eye_pose_world, _ = self._build_immersive_center_scene_view(
+                        last_left_eye_pose_world, last_right_eye_pose_world,
+                        left_intrinsic, right_intrinsic,
+                    )
+                    object_selector_panel_open = object_selector.is_open
+                    object_selector_world_corners = selector_panel_world_corners(
+                        center_eye_pose_world, is_open=object_selector_panel_open,
+                    )
+                    finished = bool(rope_game_overlay_state and
+                                    rope_game_overlay_state.get("state") == "course_finished")
+                    finished_time_s = (
+                        float((rope_game_state or {}).get("final_total_time_s") or 0.0)
+                        if finished else None
+                    )
+                    hovered_targets = tuple(sorted(target for target in selector_pointer_targets.values() if target))
+                    panel_key = (object_selector.is_open, object_selector.active_case,
+                                 object_selector.highlighted_index, hovered_targets, finished_time_s, scene_name)
+                    panel_cache = getattr(self, "_object_selector_texture_cache", None)
+                    if panel_cache is None or panel_cache[0] != panel_key:
+                        panel_texture = selector_panel_texture(
+                            object_selector, hovered_targets=hovered_targets, finished_time_s=finished_time_s,
+                            font=self._load_immersive_tutorial_status_font(26, bold=False),
+                            title_font=self._load_immersive_tutorial_status_font(38, bold=True),
+                        )
+                        self._object_selector_texture_cache = (panel_key, panel_texture)
+                    else:
+                        panel_texture = panel_cache[1]
+                    rope_game_overlay_state = dict(rope_game_overlay_state or {})
+                    rope_game_overlay_state.update(
+                        selector_panel=True,
+                        finish_modal_lines=["Game Select"],
+                        finish_modal_world_corners=object_selector_world_corners,
+                        finish_modal_texture=panel_texture,
+                    )
                 controller_predefined_anchor_states = (
                     self._compute_predefined_interaction_anchor_states(
                         controller_predefined_anchor_defs,
@@ -43484,9 +43550,13 @@ class InvPhyTrainerWarp:
                         ).strip().lower()
                         == "course_finished"
                     )
+                    rope_game_modal_visible = bool(
+                        rope_game_course_finished
+                        or (rope_game_overlay_state and rope_game_overlay_state.get("selector_panel"))
+                    )
                     if (
                         viewer_modal_sidecar_active
-                        and rope_game_course_finished
+                        and rope_game_modal_visible
                         and rope_game_overlay_state is not None
                     ):
                         modal_payload_build_start = (
@@ -43559,7 +43629,7 @@ class InvPhyTrainerWarp:
                         and (
                             (not viewer_overlay_published and not rope_game_course_finished)
                             or (
-                                rope_game_course_finished
+                                rope_game_modal_visible
                                 and viewer_modal_payload_for_publish is None
                             )
                         )
@@ -44743,6 +44813,7 @@ class InvPhyTrainerWarp:
                     allow_interaction_start=(
                         not startup_input_gate_active
                         and not object_selector.blocks_object_input
+                        and not selector_events.get("consumed_sources")
                     ),
                     interaction_release_callback=_arm_post_release_landing_lock,
                 )

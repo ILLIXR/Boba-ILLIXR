@@ -157,6 +157,7 @@ class ControllerPoseSample:
     aim_orientation_tracked: bool = False
     aim_position: Optional[np.ndarray] = None
     aim_orientation: Optional[np.ndarray] = None
+    is_hand_tracking: bool = False
 
 
 @dataclass

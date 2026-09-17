@@ -9,6 +9,8 @@ Already built and installed? Jump to [Start a demo session](#4-start-a-demo-sess
 For the same instructions with copy buttons, open the
 [offline HTML guide](IMMERSIVE_DEMO_OPERATOR_GUIDE.html), or run
 `./open_operator_guide.sh` from Boba-ILLIXR.
+For hands-only controls and the floating Game Select menu, use the paired
+ILLIXR hand-input branch and follow [Quest hand input](HAND_INPUT.md).
 
 ## 1. Prepare the computer and repositories
 
