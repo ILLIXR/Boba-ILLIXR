@@ -62,6 +62,7 @@ from qqtt.live_openxr import (
     hand_anchor,
 )
 from qqtt.quest_display import OpenXRFramePanelMirror, create_immersive_bridge
+from qqtt.hand_pointer import hand_pointer_strokes
 from qqtt.immersive_scene import (
     SimpleLabSceneRenderer,
     ensure_simple_lab_assets,
@@ -107,6 +108,7 @@ from qqtt.object_selector import (
     object_choices_for_scene,
     selector_lines,
     selector_target_from_ray,
+    selector_point_from_ray,
     selector_panel_world_corners,
     selector_panel_texture,
 )
@@ -16801,6 +16803,7 @@ class InvPhyTrainerWarp:
             "direction": world_ray_direction,
             "ray_origin": world_ray_origin,
             "ray_direction": world_ray_direction,
+            "is_hand_tracking": bool(getattr(controller_sample, "is_hand_tracking", False)),
             "select_available": controller_sample.select_available,
             "select_pressed": controller_sample.select_pressed,
             "select_value": controller_sample.select_value,
@@ -31526,6 +31529,30 @@ class InvPhyTrainerWarp:
             blend=blend,
         )
 
+    def _hand_pointer_pixel(self, overlay_world, projected_fields):
+        if not overlay_world.get("is_hand_tracking", False):
+            return None
+        # Prefer the menu plane or selected attachment; otherwise follow the ray.
+        for field in ("hand_pointer_target_world", "active_overlay_world",
+                      "attach_candidate_world", "hit_world", "ray_end_world"):
+            pixel = projected_fields.get(field)
+            if pixel is not None:
+                return pixel
+        return None
+
+    def _append_viewer_overlay_hand_pointer(self, commands, overlay):
+        pixel = self._viewer_overlay_pixel_xy(overlay.get("hand_pointer_pixel"))
+        if pixel is None:
+            return
+        color, strokes = hand_pointer_strokes(overlay["source"])
+        for x0, y0, x1, y1 in strokes:
+            self._append_viewer_overlay_line_command(
+                commands, (pixel[0] + x0, pixel[1] + y0),
+                (pixel[0] + x1, pixel[1] + y1), color, radius=0.5, blend=0.92)
+        if overlay.get("select_pressed", False):
+            self._append_viewer_overlay_marker_command(
+                commands, pixel, self.LIVE_CONTROLLER_SELECT_COLOR, radius=2, blend=0.98)
+
     def _build_live_controller_viewer_overlay_commands(self, controller_overlays):
         commands = []
         if not controller_overlays:
@@ -31715,6 +31742,8 @@ class InvPhyTrainerWarp:
                     radius=1,
                     blend=0.98,
                 )
+        for overlay in controller_overlays:
+            self._append_viewer_overlay_hand_pointer(commands, overlay)
         return commands
 
     @torch.no_grad()
@@ -31759,6 +31788,7 @@ class InvPhyTrainerWarp:
                 "attach_candidate_world",
                 "active_overlay_world",
                 "active_overlay_fallback_world",
+                "hand_pointer_target_world",
             ):
                 world_point = overlay_world.get(field_name)
                 if world_point is None:
@@ -31857,6 +31887,7 @@ class InvPhyTrainerWarp:
                     continue
                 projected = {
                     "source": overlay_world["source"],
+                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
                     "origin_pixel": self._viewer_overlay_pixel_tuple(
                         overlay_geometry["origin_pixel"]
                     ),
@@ -32165,6 +32196,19 @@ class InvPhyTrainerWarp:
                         radius=1,
                         blend=0.98,
                     )
+
+        pointer_commands = []
+        for overlay in controller_overlays:
+            self._append_viewer_overlay_hand_pointer(pointer_commands, overlay)
+        for command in pointer_commands:
+            if command[0] == 0:
+                self._draw_marker_line(
+                    frame, torch.tensor(command[1:3]), torch.tensor(command[3:5]),
+                    command[7:10], radius=command[5], blend=command[6])
+            else:
+                self._blend_marker(
+                    frame, torch.tensor(command[1:3]), command[7:10],
+                    radius=command[5], blend=command[6])
 
     def _log_controller_select_transition(
         self,
@@ -33819,6 +33863,8 @@ class InvPhyTrainerWarp:
         return {
             "source": source,
             "origin_world": origin_world,
+            "is_hand_tracking": bool(controller_world.get("is_hand_tracking", False)),
+            "hand_pointer_target_world": controller_world.get("hand_pointer_target_world"),
             "direction_world": direction_world,
             "hit_world": hit_world,
             "ray_end_world": ray_end_world,
@@ -34034,6 +34080,8 @@ class InvPhyTrainerWarp:
             return None
 
         projected_fields = {
+            "hand_pointer_target_world": self._project_world_point_to_pixel(
+                overlay_world.get("hand_pointer_target_world"), intrinsic, w2c, height, width),
             "origin_world": self._project_world_point_to_pixel_allow_offscreen(
                 overlay_world.get("origin_world"),
                 intrinsic,
@@ -34091,6 +34139,7 @@ class InvPhyTrainerWarp:
 
         projected = {
             "source": overlay_world["source"],
+            "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
             "origin_pixel": origin_pixel,
             "end_pixel": end_pixel,
             "hit_pixel": projected_fields.get("hit_world"),
@@ -34165,6 +34214,7 @@ class InvPhyTrainerWarp:
                 "attach_candidate_world",
                 "active_overlay_world",
                 "active_overlay_fallback_world",
+                "hand_pointer_target_world",
             ):
                 world_point = overlay_world.get(field_name)
                 if world_point is None:
@@ -34261,6 +34311,7 @@ class InvPhyTrainerWarp:
                 ]
                 projected = {
                     "source": overlay_world["source"],
+                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
                     "origin_pixel": origin_pixel,
                     "end_pixel": end_pixel,
                     "hit_pixel": projected_fields.get("hit_world"),
@@ -40732,6 +40783,8 @@ class InvPhyTrainerWarp:
                                     pointer_world["ray_origin"] = torch.as_tensor(selector_origin, device=cfg.device)
                                     pointer_world["ray_direction"] = torch.as_tensor(selector_direction, device=cfg.device)
                                     pointer_world["direction"] = pointer_world["ray_direction"]
+                                    pointer_world["hand_pointer_target_world"] = selector_point_from_ray(
+                                        selector_origin, selector_direction, object_selector_world_corners)
                     selector_events = object_selector.update(
                         time.perf_counter(),
                         selector_buttons_by_source,
@@ -43642,11 +43695,6 @@ class InvPhyTrainerWarp:
                         overlay_draw_left_start = (
                             time.perf_counter() if render_profile_frame is not None else None
                         )
-                        if left_eye_overlay_entries and not viewer_overlay_published:
-                            self._draw_live_controller_overlay(
-                                left_eye_frame,
-                                left_eye_overlay_entries,
-                            )
                         if immersive_support_entry_overlay_enabled:
                             self._draw_immersive_support_entry_overlay(
                                 left_eye_frame,
@@ -43659,6 +43707,11 @@ class InvPhyTrainerWarp:
                                 left_eye_frame,
                                 rope_game_overlay_state,
                                 left_overlay_eye_render_state,
+                            )
+                        if left_eye_overlay_entries and not viewer_overlay_published:
+                            self._draw_live_controller_overlay(
+                                left_eye_frame,
+                                left_eye_overlay_entries,
                             )
                         if overlay_draw_left_start is not None:
                             self._render_profile_add_wall_time(
@@ -43674,11 +43727,6 @@ class InvPhyTrainerWarp:
                         overlay_draw_right_start = (
                             time.perf_counter() if render_profile_frame is not None else None
                         )
-                        if right_eye_overlay_entries and not viewer_overlay_published:
-                            self._draw_live_controller_overlay(
-                                right_eye_frame,
-                                right_eye_overlay_entries,
-                            )
                         if immersive_support_entry_overlay_enabled:
                             self._draw_immersive_support_entry_overlay(
                                 right_eye_frame,
@@ -43691,6 +43739,11 @@ class InvPhyTrainerWarp:
                                 right_eye_frame,
                                 rope_game_overlay_state,
                                 right_overlay_eye_render_state,
+                            )
+                        if right_eye_overlay_entries and not viewer_overlay_published:
+                            self._draw_live_controller_overlay(
+                                right_eye_frame,
+                                right_eye_overlay_entries,
                             )
                         if overlay_draw_right_start is not None:
                             self._render_profile_add_wall_time(

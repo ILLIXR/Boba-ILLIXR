@@ -23,6 +23,11 @@ integration and is distinct from the upstream standalone Boba demo.
 These upstream links record attribution; setup and the default demo do not
 download source or assets from either personal repository.
 
+The hand pointer artwork and fingertip anchoring come from Boba's phone demo,
+commit `d2590a41fdaa11f9fad4fa42835d9fc8b8b0fbb1` of Boba-Demo. The two original
+images and their MIT license are bundled under
+[`assets/hand_pointer`](assets/hand_pointer/README.md).
+
 The original copyright notices, Apache 2.0 license, and bundled third-party
 licenses are retained. See [NOTICE](NOTICE), [LICENSE](LICENSE), and the license
 and provenance files next to each asset or vendored library. Third-party assets

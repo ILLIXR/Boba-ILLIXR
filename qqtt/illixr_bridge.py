@@ -278,13 +278,15 @@ class ILLIXRImmersiveBridge(OpenXRImmersiveBridge):
                 continue
             tracked = (hand.active and hand.grip_active and hand.grip_position_tracked
                        and hand.grip_orientation_tracked and hand.aim_active
-                       and hand.aim_position_valid and hand.aim_orientation_valid
-                       and hand.select_available)
-            if not tracked:
+                       and hand.aim_position_valid and hand.aim_orientation_valid)
+            # Pinch readiness controls selection, not pose visibility. The
+            # runtime can track an open hand while its pinch action is not ready.
+            select_ready = tracked and hand.select_available
+            if not select_ready:
                 self._hand_select_armed[source] = False
             elif not hand.select_pressed and hand.select_value <= 0.1:
                 self._hand_select_armed[source] = True
-            if not tracked or not self._hand_select_armed[source]:
+            if not select_ready or not self._hand_select_armed[source]:
                 hand = replace(hand, select_pressed=False, select_value=0.0)
             if not tracked:
                 hand = replace(hand, active=False)

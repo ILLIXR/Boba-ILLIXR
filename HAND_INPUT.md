@@ -6,6 +6,13 @@ and readiness into the existing select channel. Hand movement uses the grip
 pose, with the same calibration and movement limit as controller interaction.
 The simulation and its attachment model are unchanged.
 
+Tracked hands show the phone demo's red left-hand and blue right-hand pointers
+before pinching. Each icon's index fingertip marks the aim target, menu position,
+or held attachment. Pinching adds a white fingertip indicator; releasing leaves
+the pointer visible. Pinch readiness controls selection without hiding valid
+hand poses. Tracking loss or stale input still removes the pointer and releases
+the grab.
+
 ## Controls
 
 | Action | Hands | Controllers |
@@ -41,6 +48,11 @@ value 7 identifies the existing `XR_EXT_hand_interaction` profile. The ordinary
 grip/aim/select fields carry hand input; no joint-distance gesture detector or
 additional OpenXR session is introduced. The menu uses the existing stereo
 bitmap overlay and ILLIXR texture transport.
+
+The hand icons reuse the [phone-demo artwork](assets/hand_pointer/README.md),
+cached as line commands in the existing native overlay. The updated ILLIXR
+client draws this pointing feedback above the menu. Reinstall the matching APK
+to apply that draw order; the visibility fix itself runs in the desktop bridge.
 
 ## Verification
 

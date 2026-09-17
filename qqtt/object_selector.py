@@ -149,6 +149,15 @@ def selector_target_from_ray(ray_origin, ray_direction, world_corners, *, is_ope
     return None
 
 
+def selector_point_from_ray(ray_origin, ray_direction, world_corners):
+    """Locate a pointer on the same panel plane used by button hit testing."""
+    uv = _quad_uv_from_ray(ray_origin, ray_direction, world_corners)
+    if uv is None:
+        return None
+    corners = np.asarray(world_corners, dtype=np.float32)
+    return corners[0] + uv[0] * (corners[1] - corners[0]) + uv[1] * (corners[3] - corners[0])
+
+
 def selector_panel_world_corners(center_eye_pose_world, *, is_open):
     """Place the small button lower-right; expand the selector in front of the user."""
     pose = np.asarray(center_eye_pose_world, dtype=np.float32)
