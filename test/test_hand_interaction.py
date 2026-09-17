@@ -15,7 +15,7 @@ from qqtt.object_selector import (
 )
 
 
-def _packet(*, hand=True, pressed=False, tracked=True, ready=True):
+def _packet(*, hand=True, pressed=False, tracked=True, ready=True, missing=None):
     import struct
 
     flags = 31 if tracked else 7
@@ -25,10 +25,12 @@ def _packet(*, hand=True, pressed=False, tracked=True, ready=True):
     trigger = Bridge.INPUT_BUTTON_STRUCT.pack(
         (3 if pressed else 1) if ready else 0, float(pressed and ready))
     neutral = Bridge.INPUT_BUTTON_STRUCT.pack(0, 0)
-    controller = (struct.pack("<II", 1, 7 if hand else 2) + grip + aim + trigger + neutral * 4
-                  + Bridge.INPUT_AXIS_STRUCT.pack(0, 0, 0))
+    controllers = b"".join(
+        struct.pack("<II", int(side != missing), 7 if hand else 2)
+        + grip + aim + trigger + neutral * 4 + Bridge.INPUT_AXIS_STRUCT.pack(0, 0, 0)
+        for side in ("left", "right"))
     return (Bridge.INPUT_HEADER_STRUCT.pack(Bridge.INPUT_MAGIC, 1, Bridge.INPUT_PACKET_BYTE_COUNT, 12, 1234)
-            + eye * 2 + controller * 2)
+            + eye * 2 + controllers)
 
 
 def _sample(**kwargs):
@@ -115,6 +117,64 @@ def test_stale_hand_input_releases_without_mutating_latest_view(monkeypatch):
     assert bridge._latest_sample.left.select_pressed
 
 
+@pytest.mark.parametrize("missing", ["left", "right"])
+def test_one_missing_hand_releases_its_grab_without_disturbing_the_other(monkeypatch, missing):
+    import torch
+    from types import SimpleNamespace
+    from qqtt.engine import trainer_warp
+
+    monkeypatch.setattr(trainer_warp, "cfg", SimpleNamespace(device="cpu"))
+    trainer = trainer_warp.InvPhyTrainerWarp.__new__(trainer_warp.InvPhyTrainerWarp)
+    gate = _gate()
+    other = "right" if missing == "left" else "left"
+    alignment = {"basis": torch.eye(3), "translation_scale": torch.tensor(1.0)}
+    interactions = {}
+    for side in ("left", "right"):
+        alignment[f"reference_live_{side}"] = torch.zeros(3)
+        alignment[f"reference_scene_{side}"] = torch.zeros(3)
+        interactions[side] = {"translation_only": True, "spring_remap_applied": True,
+                              "grab_controller_position_world": torch.zeros(3),
+                              "grab_attach_anchor_world": torch.tensor([1., 2., 3.])}
+
+    def update(t, **kwargs):
+        return gate._prepare_hand_input(replace(_sample(**kwargs), received_monotonic_s=t))
+
+    update(1.0)
+    held = update(1.1, pressed=True)
+    assert held.left.select_pressed and held.right.select_pressed
+    lost = update(1.2, pressed=True, missing=missing)
+    assert not getattr(lost, missing).active and not getattr(lost, missing).select_pressed
+    assert getattr(lost, missing).select_value == 0
+    assert getattr(lost, other).active and getattr(lost, other).select_pressed
+    worlds = {}
+    for side in ("left", "right"):
+        world = trainer._convert_live_controller_to_world(
+            side, getattr(lost, side), alignment, position_pose_role="grip", ray_pose_role="aim")
+        if world is not None:
+            world["select_hold_active"] = True
+        worlds[side] = world
+    assert worlds[missing] is None and worlds[other] is not None
+    restored, released = [], []
+    monkeypatch.setattr(trainer, "_restore_controller_attachment_remap", lambda side, metadata: restored.append(side))
+    monkeypatch.setattr(trainer, "_log_controller_interaction_end", lambda *args: None)
+    preview = {"left": {}, "right": {}}
+    anchors = trainer._resolve_live_controller_interaction_anchors(
+        worlds["left"], worlds["right"], {}, interactions, {}, {}, {}, {}, preview, None,
+        allow_interaction_start=False, interaction_release_callback=lambda **event: released.append(event))
+    assert interactions[missing] is None and interactions[other] is not None
+    assert restored == [missing] and [event["source"] for event in released] == [missing]
+    assert anchors[0 if missing == "left" else 1] is None
+    np.testing.assert_allclose(anchors[0 if other == "left" else 1], [1.1, 3.1, 2.7], atol=1e-6)
+
+    # Reacquiring the absent hand while still pinching cannot start a new grab,
+    # and must not disarm the other hand's uninterrupted hold.
+    recovered = update(1.3, pressed=True)
+    assert getattr(recovered, missing).active and not getattr(recovered, missing).select_pressed
+    assert getattr(recovered, other).select_pressed
+    update(1.4)
+    assert getattr(update(1.5, pressed=True), missing).select_pressed
+
+
 def _buttons(left=False, right=False, hand=True):
     return {"left": {"select": left, "hand": hand}, "right": {"select": right, "hand": hand}}
 
@@ -180,7 +240,8 @@ def test_visible_button_rects_match_ray_targets_after_head_motion(is_open):
     assert selector_point_from_ray(pose[:3, 3], pose[:3, 2], corners) is None
 
 
-def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch):
+@pytest.mark.parametrize("backend", ["native", "desktop"])
+def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend):
     import torch
     from types import SimpleNamespace
     from qqtt.engine import trainer_warp
@@ -199,6 +260,8 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch):
         w2c[0, 3] = -offset
         eyes[source] = {"w2c_cv_np": w2c,
                         "intrinsic_np": np.array([[180, 0, 160], [0, 180, 120], [0, 0, 1]], dtype=np.float32)}
+        eyes[source]["w2c_cv_t"] = torch.from_numpy(w2c)
+        eyes[source]["intrinsic_t"] = torch.from_numpy(eyes[source]["intrinsic_np"])
 
     def render(sample):
         overlays = []
@@ -212,11 +275,29 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch):
                        "hit_world": None, "ray_end_world": world["ray_origin"] + 0.65 * world["ray_direction"]}
             overlays.append(trainer._build_live_controller_world_overlay(
                 source, world, None, None, None, preview_context=preview))
-        return trainer._build_live_controller_viewer_overlay_commands_from_world_batched(
-            overlays, eyes, 240, 320)
+        if backend == "native":
+            return trainer._build_live_controller_viewer_overlay_commands_from_world_batched(
+                overlays, eyes, 240, 320)
+        projected = trainer._project_live_controller_world_overlays_batched(overlays, eyes, 240, 320)
+        result = {}
+        for eye, entries in projected.items():
+            commands = []
+            monkeypatch.setattr(trainer, "_draw_marker_line", lambda frame, start, end, color, **style:
+                trainer._append_viewer_overlay_line_command(commands, start, end, color, **style))
+            monkeypatch.setattr(trainer, "_blend_marker", lambda frame, pixel, color, **style:
+                trainer._append_viewer_overlay_marker_command(commands, pixel, color, **style))
+            trainer._draw_live_controller_overlay(None, entries)
+            result[eye] = commands
+        return result
 
     sample = _gate()._prepare_hand_input(replace(_sample(ready=False), received_monotonic_s=1.0))
     idle = render(sample)
+    ready = render(_gate()._prepare_hand_input(replace(_sample(), received_monotonic_s=1.0)))
+    # With no hovered or held object, hand mode draws only the hand artwork:
+    # no laser, origin dot, or controller readiness indicator, even when ready.
+    hand_colors = {hand_pointer_strokes(side)[0] for side in ("left", "right")}
+    for rendered in (idle, ready):
+        assert all(tuple(c[7:10]) in hand_colors for commands in rendered.values() for c in commands)
     moved = replace(sample, **{source: replace(getattr(sample, source),
         grip_position=getattr(sample, source).grip_position + [0.08, 0, 0],
         aim_position=getattr(sample, source).aim_position + [0.08, 0, 0])
@@ -236,8 +317,15 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch):
         assert centers["left", source] > centers["right", source]
     lost = replace(sample, left=replace(sample.left, active=False), right=replace(sample.right, active=False))
     assert render(lost) == {"left": [], "right": []}
+    for missing in ("left", "right"):
+        one_hand = _gate()._prepare_hand_input(replace(_sample(missing=missing), received_monotonic_s=1.0))
+        other = "right" if missing == "left" else "left"
+        for commands in render(one_hand).values():
+            assert len(commands) == len(hand_pointer_strokes(other)[1])
+            assert all(tuple(c[7:10]) == hand_pointer_strokes(other)[0] for c in commands)
     controller = render(_sample(hand=False))
     for commands in controller.values():
+        assert sum(c[0] == 0 for c in commands) == 2  # Touch retains both laser rays.
         assert len(commands) < len(idle["left"])
         assert not any(tuple(c[7:10]) == hand_pointer_strokes(side)[0]
                        for c in commands for side in ("left", "right"))

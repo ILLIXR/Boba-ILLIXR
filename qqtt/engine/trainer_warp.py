@@ -31636,7 +31636,7 @@ class InvPhyTrainerWarp:
             hit_pixel = overlay["hit_pixel"]
             attachment_active = overlay.get("attachment_active", False)
             active_contact_only = bool(overlay.get("active_contact_only", False))
-            if active_contact_only:
+            if active_contact_only or overlay.get("is_hand_tracking", False):
                 continue
             self._append_viewer_overlay_line_command(
                 commands,
@@ -31700,7 +31700,8 @@ class InvPhyTrainerWarp:
                             radius=1,
                             blend=0.96,
                         )
-            if not active_contact_only and overlay["select_available"]:
+            if (not active_contact_only and not overlay.get("is_hand_tracking", False)
+                    and overlay["select_available"]):
                 origin_xy = self._viewer_overlay_pixel_xy(origin_pixel)
                 indicator_pixel = (
                     None
@@ -31887,6 +31888,7 @@ class InvPhyTrainerWarp:
                     continue
                 projected = {
                     "source": overlay_world["source"],
+                    "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
                     "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
                     "origin_pixel": self._viewer_overlay_pixel_tuple(
                         overlay_geometry["origin_pixel"]
@@ -32086,7 +32088,7 @@ class InvPhyTrainerWarp:
             attachment_active = overlay.get("attachment_active", False)
             active_contact_only = bool(overlay.get("active_contact_only", False))
 
-            if not active_contact_only:
+            if not active_contact_only and not overlay.get("is_hand_tracking", False):
                 self._draw_marker_line(
                     frame,
                     origin_pixel,
@@ -32153,7 +32155,8 @@ class InvPhyTrainerWarp:
                             blend=0.96,
                         )
 
-            if not active_contact_only and overlay["select_available"]:
+            if (not active_contact_only and not overlay.get("is_hand_tracking", False)
+                    and overlay["select_available"]):
                 indicator_pixel = origin_pixel + origin_pixel.new_tensor(
                     [0.0, -10.0],
                     dtype=torch.float32,
@@ -34139,6 +34142,7 @@ class InvPhyTrainerWarp:
 
         projected = {
             "source": overlay_world["source"],
+            "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
             "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
             "origin_pixel": origin_pixel,
             "end_pixel": end_pixel,
@@ -34311,6 +34315,7 @@ class InvPhyTrainerWarp:
                 ]
                 projected = {
                     "source": overlay_world["source"],
+                    "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
                     "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
                     "origin_pixel": origin_pixel,
                     "end_pixel": end_pixel,
