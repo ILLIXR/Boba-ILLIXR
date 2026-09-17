@@ -827,6 +827,47 @@ def draw_step(
     ) + int(vertical_gap)
 
 
+def slide_hand_controls() -> Image.Image:
+    image, draw = make_slide()
+    draw_title(draw, "Hand interaction")
+    left_rect = (OUTER_MARGIN + 28, CONTENT_TOP, 900, CONTENT_BOTTOM)
+    right_rect = (934, CONTENT_TOP, SLIDE_WIDTH - OUTER_MARGIN - 28, CONTENT_BOTTOM)
+    draw_panel(draw, left_rect, "Point, pinch, move, release")
+    draw_panel(draw, right_rect, "Menus and tracking")
+
+    x = left_rect[0] + PANEL_BODY_PAD_X
+    y = left_rect[1] + PANEL_BODY_PAD_TOP
+    width = left_rect[2] - left_rect[0] - PANEL_BODY_PAD_X * 2
+    for number, text in enumerate((
+        "Show an open hand. Move the cursor's fingertip onto an interaction marker.",
+        "Touch your index finger and thumb together to grab.",
+        "Keep pinching while you move your hand to move the object.",
+        "Separate finger and thumb to let go. No second pinch is needed.",
+    ), start=1):
+        y = draw_step(draw, number=number, x=x, y=y, width=width,
+                      text=text, vertical_gap=44)
+    draw_wrapped_text(draw, (x, max(y, 830)),
+                      "Pointing or hovering alone never grabs.",
+                      font=BODY_BOLD_FONT, fill=ACCENT_GREEN, max_width=width)
+
+    card_x0 = right_rect[0] + PANEL_BODY_PAD_X
+    card_x1 = right_rect[2] - PANEL_BODY_PAD_X
+    for top, bottom, title, text in (
+        (288, 478, "Game menu",
+         "Point at Game Select in the lower-right of your view, then pinch. Choose Rope, Sloth or Close."),
+        (498, 688, "Keep each hand visible",
+         "Hiding a hand releases its grab. Show it open before pinching again."),
+        (708, 912, "Start with open hands",
+         "Show your hands in front of you. Pinch and release once per tutorial page. Wait for Ready to start."),
+    ):
+        draw_card(draw, (card_x0, top, card_x1, bottom), title=title)
+        draw_wrapped_text(draw, (card_x0 + CARD_INSET, top + CARD_BODY_TOP), text,
+                          font=BODY_FONT, fill=BODY_COLOR,
+                          max_width=card_x1 - card_x0 - 2 * CARD_INSET)
+    draw_footer(draw, "Pinch and release to continue  |  Controllers: press Trigger")
+    return image
+
+
 def slide_two() -> Image.Image:
     image, draw = make_slide()
     draw_title(draw, "How Interaction Works")
@@ -1029,6 +1070,7 @@ def main():
     TUTORIAL_DIR.mkdir(parents=True, exist_ok=True)
     ROPE_GAME_DIR.mkdir(parents=True, exist_ok=True)
 
+    slide_hand_controls().save(TUTORIAL_DIR / "hand_controls.png")
     slide_one().save(TUTORIAL_DIR / "controls_overview.png")
     slide_two().save(TUTORIAL_DIR / "interaction_tips.png")
     slide_three().save(ROPE_GAME_DIR / "tutorial_rope_game_goal.png")

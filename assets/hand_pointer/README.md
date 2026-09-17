@@ -11,7 +11,8 @@ of the hand indicators in the Boba phone demo:
 `qqtt/hand_pointer.py` follows the phone demo's fingertip anchoring and caches
 48-pixel scanlines of the largest connected component (the hand), omitting the
 detached decorative arrows. The original source images stay intact. The fingertip
-marks the ray target or held attachment; the artwork is visible independently
+marks the raw aim target or menu intersection; attachment feedback does not
+snap it to a nearby or held marker. The artwork is visible independently
 of pinch readiness. The two icons together use fewer than 160 line commands,
 within the existing 256-command per-eye limit along with attachment feedback.
 Hand input shows no laser ray or controller-origin indicators.

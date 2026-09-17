@@ -15,7 +15,7 @@ from qqtt.object_selector import (
 )
 
 
-def _packet(*, hand=True, pressed=False, tracked=True, ready=True, missing=None):
+def _packet(*, hand=True, pressed=False, tracked=True, ready=True, missing=None, value=None):
     import struct
 
     flags = 31 if tracked else 7
@@ -23,7 +23,8 @@ def _packet(*, hand=True, pressed=False, tracked=True, ready=True, missing=None)
     grip = Bridge.INPUT_POSE_STRUCT.pack(flags, 0.1, 1.1, -0.3, 0, 0, 0, 1)
     aim = Bridge.INPUT_POSE_STRUCT.pack(flags, 0.2, 1.2, -0.4, 0, 0, 0, 1)
     trigger = Bridge.INPUT_BUTTON_STRUCT.pack(
-        (3 if pressed else 1) if ready else 0, float(pressed and ready))
+        (3 if pressed else 1) if ready else 0,
+        float(pressed if value is None else value) if ready else 0.0)
     neutral = Bridge.INPUT_BUTTON_STRUCT.pack(0, 0)
     controllers = b"".join(
         struct.pack("<II", int(side != missing), 7 if hand else 2)
@@ -115,6 +116,74 @@ def test_stale_hand_input_releases_without_mutating_latest_view(monkeypatch):
     assert not sample.left.active and not sample.left.select_pressed
     assert sample.left_eye is bridge._latest_sample.left_eye
     assert bridge._latest_sample.left.select_pressed
+
+
+@pytest.mark.parametrize("source", ["left", "right"])
+@pytest.mark.parametrize("release_ready", [True, False])
+def test_pinch_release_ends_attachment_without_another_pinch(monkeypatch, source, release_ready):
+    import torch
+    from types import SimpleNamespace
+    from qqtt.engine import trainer_warp
+
+    monkeypatch.setattr(trainer_warp, "cfg", SimpleNamespace(device="cpu"))
+    trainer = trainer_warp.InvPhyTrainerWarp.__new__(trainer_warp.InvPhyTrainerWarp)
+    gate = _gate()
+    hold_state = {}
+    alignment = {"basis": torch.eye(3), "translation_scale": torch.tensor(1.0)}
+    for side in ("left", "right"):
+        alignment[f"reference_live_{side}"] = torch.zeros(3)
+        alignment[f"reference_scene_{side}"] = torch.zeros(3)
+
+    def update(t, **kwargs):
+        sample = gate._prepare_hand_input(replace(_sample(**kwargs), received_monotonic_s=t))
+        hand = getattr(sample, source)
+        return hand, trainer._update_controller_select_hold_state(source, hand, hold_state)
+
+    update(1.0)
+    # This value appeared in the headset log with select_pressed=0. It must
+    # neither acquire an attachment nor advance a tutorial page.
+    weak, weak_state = update(1.1, value=0.296)
+    assert not any(weak_state[key] for key in ("start_active", "start_edge", "hold_active"))
+    assert not trainer._immersive_controller_select_active(weak)
+    pinched, pinched_state = update(1.2, pressed=True)
+    assert pinched_state["start_edge"] and pinched_state["hold_active"]
+    assert trainer._immersive_controller_select_active(pinched)
+
+    interactions = {"left": None, "right": None}
+    interactions[source] = {"translation_only": True, "spring_remap_applied": True,
+                            "grab_controller_position_world": torch.zeros(3),
+                            "grab_attach_anchor_world": torch.tensor([1., 2., 3.])}
+    restored, released = [], []
+    monkeypatch.setattr(trainer, "_restore_controller_attachment_remap", lambda side, metadata: restored.append(side))
+    monkeypatch.setattr(trainer, "_log_controller_interaction_end", lambda *args: None)
+    preview = {"left": {}, "right": {}}
+    for frame in range(1, trainer.LIVE_CONTROLLER_SELECT_RELEASE_FRAMES + 1):
+        hand, state = update(1.2 + frame * 0.05, value=0.296, ready=release_ready)
+        assert hand.active and state["release_ready"] and not state["hold_active"]
+        assert state["release_frames"] == frame
+        world = trainer._convert_live_controller_to_world(
+            source, hand, alignment, position_pose_role="grip", ray_pose_role="aim")
+        world.update({f"select_{key}": state[key] for key in
+                      ("start_edge", "hold_active", "release_ready", "release_frames")})
+        worlds = {"left": None, "right": None, source: world}
+        anchors = trainer._resolve_live_controller_interaction_anchors(
+            worlds["left"], worlds["right"], {}, interactions, {}, {}, {}, {}, preview, None,
+            allow_interaction_start=False, interaction_release_callback=lambda **event: released.append(event))
+    assert interactions[source] is None and anchors == (None, None)
+    assert restored == [source] and [event["source"] for event in released] == [source]
+
+
+def test_controller_keeps_analog_trigger_thresholds():
+    from qqtt.engine import trainer_warp
+
+    trainer = trainer_warp.InvPhyTrainerWarp.__new__(trainer_warp.InvPhyTrainerWarp)
+    partial_trigger = _sample(hand=False, value=0.296).right
+    state = {}
+    held = trainer._update_controller_select_hold_state("right", partial_trigger, state)
+    assert held["start_edge"] and held["hold_active"]
+    assert trainer._immersive_controller_select_active(partial_trigger)
+    released = trainer._update_controller_select_hold_state("right", _sample(hand=False, value=0.03).right, state)
+    assert released["release_ready"] and not released["hold_active"]
 
 
 @pytest.mark.parametrize("missing", ["left", "right"])
@@ -263,7 +332,7 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
         eyes[source]["w2c_cv_t"] = torch.from_numpy(w2c)
         eyes[source]["intrinsic_t"] = torch.from_numpy(eyes[source]["intrinsic_np"])
 
-    def render(sample):
+    def render(sample, feedback=None):
         overlays = []
         for source in ("left", "right"):
             world = trainer._convert_live_controller_to_world(
@@ -273,8 +342,16 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
                 continue
             preview = {"origin_world": world["ray_origin"], "direction_world": world["ray_direction"],
                        "hit_world": None, "ray_end_world": world["ray_origin"] + 0.65 * world["ray_direction"]}
-            overlays.append(trainer._build_live_controller_world_overlay(
-                source, world, None, None, None, preview_context=preview))
+            overlay = trainer._build_live_controller_world_overlay(
+                source, world, None, None, None, preview_context=preview)
+            marker = torch.tensor([0.6, 0.1, 1.3])
+            if feedback == "hover":
+                overlay.update(attach_candidate=True, attach_candidate_world=marker)
+            elif feedback == "held":
+                overlay.update(attachment_active=True, active_contact_only=True,
+                               active_overlay_world=marker, active_overlay_fallback_world=marker,
+                               ray_end_world=marker)
+            overlays.append(overlay)
         if backend == "native":
             return trainer._build_live_controller_viewer_overlay_commands_from_world_batched(
                 overlays, eyes, 240, 320)
@@ -286,7 +363,7 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
                 trainer._append_viewer_overlay_line_command(commands, start, end, color, **style))
             monkeypatch.setattr(trainer, "_blend_marker", lambda frame, pixel, color, **style:
                 trainer._append_viewer_overlay_marker_command(commands, pixel, color, **style))
-            trainer._draw_live_controller_overlay(None, entries)
+            trainer._draw_live_controller_overlay(torch.zeros((240, 320, 3)), entries)
             result[eye] = commands
         return result
 
@@ -315,6 +392,16 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
             centers[eye, source] = icon[:, 1].mean()
     for source in ("left", "right"):
         assert centers["left", source] > centers["right", source]
+    # Hovering or grabbing can move the attachment marker, but the hand cursor
+    # must continue to follow the same aim trajectory in both renderers/eyes.
+    for feedback in ("hover", "held"):
+        with_marker = render(moved, feedback=feedback)
+        for eye in eyes:
+            for source in ("left", "right"):
+                color = hand_pointer_strokes(source)[0]
+                actual = np.array([c for c in with_marker[eye] if tuple(c[7:10]) == color])
+                expected = np.array([c for c in moving[eye] if tuple(c[7:10]) == color])
+                np.testing.assert_allclose(actual, expected, atol=1e-4)
     lost = replace(sample, left=replace(sample.left, active=False), right=replace(sample.right, active=False))
     assert render(lost) == {"left": [], "right": []}
     for missing in ("left", "right"):
@@ -331,17 +418,22 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
                        for c in commands for side in ("left", "right"))
 
 
-def test_hand_cursor_tracks_menu_plane_and_held_attachment(monkeypatch):
+def test_hand_cursor_uses_aim_or_menu_target_without_attachment_fallback():
     from qqtt.engine import trainer_warp
     trainer = trainer_warp.InvPhyTrainerWarp.__new__(trainer_warp.InvPhyTrainerWarp)
     fields = {"hand_pointer_target_world": (30.0, 50.0),
               "active_overlay_world": (40.0, 70.0),
+              "attach_candidate_world": (60.0, 80.0),
               "ray_end_world": (100.0, 110.0)}
     hand = {"is_hand_tracking": True}
     assert trainer._hand_pointer_pixel(hand, fields) == (30.0, 50.0)
     fields.pop("hand_pointer_target_world")
-    assert trainer._hand_pointer_pixel(hand, fields) == (40.0, 70.0)
+    assert trainer._hand_pointer_pixel(hand, fields) is None
     assert trainer._hand_pointer_pixel({"is_hand_tracking": False}, fields) is None
+    # A visible aim/menu target must not require a visible attachment or laser.
+    geometry = trainer._resolve_live_controller_projected_overlay_geometry(
+        hand, {"hand_pointer_target_world": (30.0, 50.0)}, eye_label="left", height=240, width=320)
+    assert geometry is not None
 
 
 def test_panel_gap_does_not_activate_adjacent_game():

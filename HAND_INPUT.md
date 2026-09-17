@@ -8,12 +8,22 @@ The simulation and its attachment model are unchanged.
 
 Tracked hands show red left-hand and blue right-hand pointers from the phone
 demo, with the decorative arrows removed and no visible laser. Each icon's
-index fingertip marks the aim target, menu position,
-or held attachment. Pinching adds a white fingertip indicator; releasing leaves
+index fingertip follows the actual aim target or menu position, independently
+of nearby and held attachment markers. Pinching adds a white fingertip indicator; releasing leaves
 the pointer visible. Pinch readiness controls selection without hiding valid
 hand poses. ILLIXR checks each hand's joint tracker and tracked wrist at the
 current display time. Losing one hand removes only its pointer and releases
 only its grab; the other hand continues working. Stale input releases both.
+
+Hand grabs and tutorial navigation use the pinch button state supplied by the
+Quest adapter. Weak nonzero pinch values do not start or sustain a grab.
+Releasing the pinch, including loss of pinch readiness while the hand remains
+tracked, ends the grab after the existing two-frame release confirmation.
+No second pinch is required. The cursor keeps following the aim location;
+hovering a marker does not snap it to the attachment or start an interaction.
+
+The first startup slide explains pointing, pinching, moving, releasing, the
+Game Select menu, and tracking recovery. Pinch and release once per page.
 
 ## Controls
 
@@ -56,6 +66,9 @@ cached as line commands in the existing native overlay. The updated ILLIXR
 client draws this pointing feedback above the menu. The aim ray remains an
 internal targeting calculation. Reinstall the matching APK for the per-hand
 joint tracking check and restart the desktop for the updated pointer rendering.
+If the APK already includes the per-hand joint presence check from ILLIXR
+`78ce974`, the pinch-release, cursor-motion, and tutorial changes only require
+a desktop restart; another APK installation is unnecessary.
 
 ## Verification
 
@@ -67,8 +80,10 @@ PYTHONPATH="$PWD" python -m pytest -q test -ra
 ```
 
 The hand tests cover packet compatibility, grip movement through the existing
-grab path, independent left/right loss and spring-remap release, reacquisition,
-pointer motion and laser suppression in both rendering paths, transport timeout, button geometry,
+grab path, release with nonzero pinch strength or unavailable readiness,
+independent left/right loss and spring-remap release, reacquisition, pointer
+motion through hover/grab feedback and laser suppression in both rendering paths,
+transport timeout, button geometry,
 same-hand selection, closing while pinching, and input carried across a game
 switch. The complete suite also exercises controller behavior and simulation.
 GPU-dependent tests require access to CUDA; optional Garden tests require the

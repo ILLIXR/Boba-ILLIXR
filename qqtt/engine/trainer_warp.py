@@ -11109,10 +11109,11 @@ class InvPhyTrainerWarp:
         available = bool(
             controller_sample is not None and controller_sample.select_available
         )
+        is_hand = bool(getattr(controller_sample, "is_hand_tracking", False))
+        if is_hand and not controller_sample.active:
+            available = False
         pressed = bool(
-            controller_sample is not None
-            and controller_sample.select_available
-            and controller_sample.select_pressed
+            available and controller_sample.select_pressed
         )
         value = float(
             0.0 if controller_sample is None else controller_sample.select_value
@@ -11136,6 +11137,16 @@ class InvPhyTrainerWarp:
         release_ready = available and (not pressed) and (
             value < self.LIVE_CONTROLLER_SELECT_HOLD_THRESHOLD
         )
+        if is_hand:
+            # The Quest adapter already supplies the pinch button state. Small
+            # nonzero pinch strengths are normal with separated fingers and must
+            # not inherit the controller trigger's low analog start/hold limits.
+            start_active = available and pressed
+            hold_active = start_active
+            select_start_edge = start_active and not previous_pressed
+            # A tracked hand can stop being pinch-ready on release. Unavailable
+            # select input ends a hand grab instead of freezing its release count.
+            release_ready = not hold_active
         release_frames = previous_release_frames + 1 if release_ready else 0
         state = {
             "available": available,
@@ -21235,6 +21246,8 @@ class InvPhyTrainerWarp:
             return False
         if not bool(getattr(controller_sample, "select_available", False)):
             return False
+        if bool(getattr(controller_sample, "is_hand_tracking", False)):
+            return bool(controller_sample.active and controller_sample.select_pressed)
         return bool(getattr(controller_sample, "select_pressed", False)) or (
             float(getattr(controller_sample, "select_value", 0.0))
             >= float(self.LIVE_CONTROLLER_SELECT_START_THRESHOLD)
@@ -31532,13 +31545,9 @@ class InvPhyTrainerWarp:
     def _hand_pointer_pixel(self, overlay_world, projected_fields):
         if not overlay_world.get("is_hand_tracking", False):
             return None
-        # Prefer the menu plane or selected attachment; otherwise follow the ray.
-        for field in ("hand_pointer_target_world", "active_overlay_world",
-                      "attach_candidate_world", "hit_world", "ray_end_world"):
-            pixel = projected_fields.get(field)
-            if pixel is not None:
-                return pixel
-        return None
+        # This is the raw aim target (or menu intersection), saved before grab
+        # feedback rewrites ray_end_world. Never snap the cursor to an attachment.
+        return projected_fields.get("hand_pointer_target_world")
 
     def _append_viewer_overlay_hand_pointer(self, commands, overlay):
         pixel = self._viewer_overlay_pixel_xy(overlay.get("hand_pointer_pixel"))
@@ -33863,11 +33872,16 @@ class InvPhyTrainerWarp:
             )
             if origin_world is None or direction_world is None or ray_end_world is None:
                 return None
+        hand_pointer_target = None
+        if controller_world.get("is_hand_tracking", False):
+            hand_pointer_target = controller_world.get("hand_pointer_target_world")
+            if hand_pointer_target is None:
+                hand_pointer_target = ray_end_world
         return {
             "source": source,
             "origin_world": origin_world,
             "is_hand_tracking": bool(controller_world.get("is_hand_tracking", False)),
-            "hand_pointer_target_world": controller_world.get("hand_pointer_target_world"),
+            "hand_pointer_target_world": hand_pointer_target,
             "direction_world": direction_world,
             "hit_world": hit_world,
             "ray_end_world": ray_end_world,
@@ -34048,7 +34062,8 @@ class InvPhyTrainerWarp:
         if marker_visible and not line_visible:
             active_contact_only = True
 
-        if not line_visible and not marker_visible:
+        if (not line_visible and not marker_visible
+                and self._hand_pointer_pixel(overlay_world, projected_fields) is None):
             self._record_live_controller_active_overlay_counter(
                 "controller_overlay_dropped_no_visible_segment_count"
             )
