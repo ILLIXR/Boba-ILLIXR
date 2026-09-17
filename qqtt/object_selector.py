@@ -159,15 +159,14 @@ def selector_point_from_ray(ray_origin, ray_direction, world_corners):
 
 
 def selector_panel_world_corners(center_eye_pose_world, *, is_open):
-    """Place the small button lower-right; expand the selector in front of the user."""
+    """Anchor Game Select at the upper-right; expand leftward and downward."""
     pose = np.asarray(center_eye_pose_world, dtype=np.float32)
     if pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
         return None
     width, height = (0.64, 0.40) if is_open else (0.28, 0.081)
     right, up, back = pose[:3, 0], pose[:3, 1], pose[:3, 2]
-    center = pose[:3, 3] - 0.85 * back
-    if not is_open:
-        center = center + 0.34 * right - 0.23 * up
+    top_right = pose[:3, 3] - 0.85 * back + 0.65 * right + 0.50 * up
+    center = top_right - width / 2 * right - height / 2 * up
     return np.asarray([
         center - width / 2 * right + height / 2 * up,
         center + width / 2 * right + height / 2 * up,

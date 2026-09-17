@@ -841,7 +841,7 @@ def slide_hand_controls() -> Image.Image:
     for number, text in enumerate((
         "Show an open hand. Move the cursor's fingertip onto an interaction marker.",
         "Touch your index finger and thumb together to grab.",
-        "Keep pinching while you move your hand to move the object.",
+        "Keep pinching to move the object. The cursor follows the grabbed point.",
         "Separate finger and thumb to let go. No second pinch is needed.",
     ), start=1):
         y = draw_step(draw, number=number, x=x, y=y, width=width,
@@ -854,7 +854,7 @@ def slide_hand_controls() -> Image.Image:
     card_x1 = right_rect[2] - PANEL_BODY_PAD_X
     for top, bottom, title, text in (
         (288, 478, "Game menu",
-         "Point at Game Select in the lower-right of your view, then pinch. Choose Rope, Sloth or Close."),
+         "Aim your fingertip at Game Select in the upper-right. When it lights up, pinch and release. Choose Rope, Sloth or Close."),
         (498, 688, "Keep each hand visible",
          "Hiding a hand releases its grab. Show it open before pinching again."),
         (708, 912, "Start with open hands",

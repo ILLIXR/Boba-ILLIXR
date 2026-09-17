@@ -31542,12 +31542,47 @@ class InvPhyTrainerWarp:
             blend=blend,
         )
 
-    def _hand_pointer_pixel(self, overlay_world, projected_fields):
+    def _hand_pointer_pixel(self, overlay_world, projected_fields, overlay_geometry=None):
         if not overlay_world.get("is_hand_tracking", False):
             return None
-        # This is the raw aim target (or menu intersection), saved before grab
-        # feedback rewrites ray_end_world. Never snap the cursor to an attachment.
+        if overlay_world.get("attachment_active", False) and overlay_world.get("select_pressed", False):
+            # Use the exact contact marker, including its existing projection
+            # fallback, while holding. Aim can rotate independently of the grip.
+            if overlay_geometry is not None:
+                return overlay_geometry.get("attach_active_pixel")
+            return projected_fields.get("active_overlay_world")
+        # Hovering and releasing keep the raw aim target; proximity alone must
+        # never pull an open hand onto an attachment marker.
         return projected_fields.get("hand_pointer_target_world")
+
+    def _update_hand_selector_pointer(
+        self, controller_world, preview_context, center_eye_pose_world, panel_corners,
+        *, is_open, interaction_state=None,
+    ):
+        """Hit-test the visible fingertip, then place it at the panel's stereo depth."""
+        controller_world["hand_menu_hovered"] = False
+        aim_target = preview_context.get("ray_end_world") if preview_context else None
+        controller_world["hand_pointer_target_world"] = aim_target
+        if aim_target is None or panel_corners is None:
+            return None
+        if interaction_state is not None and controller_world.get(
+            "select_hold_active", controller_world.get("select_pressed", False)
+        ):
+            # This hand's visible pointer is on the grabbed contact, not on UI.
+            return None
+        if torch.is_tensor(aim_target):
+            aim_target = aim_target.detach().cpu().numpy()
+        origin = np.asarray(center_eye_pose_world, dtype=np.float32)[:3, 3]
+        direction = np.asarray(aim_target, dtype=np.float32) - origin
+        # The menu is a head-facing overlay. Pick through the actual displayed
+        # aim endpoint, not a second hand ray with different calibration/gain.
+        point = selector_point_from_ray(origin, direction, panel_corners)
+        if point is None:
+            return None
+        controller_world["hand_pointer_target_world"] = point
+        target = selector_target_from_ray(origin, direction, panel_corners, is_open=is_open)
+        controller_world["hand_menu_hovered"] = target is not None
+        return target
 
     def _append_viewer_overlay_hand_pointer(self, commands, overlay):
         pixel = self._viewer_overlay_pixel_xy(overlay.get("hand_pointer_pixel"))
@@ -31558,7 +31593,7 @@ class InvPhyTrainerWarp:
             self._append_viewer_overlay_line_command(
                 commands, (pixel[0] + x0, pixel[1] + y0),
                 (pixel[0] + x1, pixel[1] + y1), color, radius=0.5, blend=0.92)
-        if overlay.get("select_pressed", False):
+        if overlay.get("select_pressed", False) or overlay.get("hand_menu_hovered", False):
             self._append_viewer_overlay_marker_command(
                 commands, pixel, self.LIVE_CONTROLLER_SELECT_COLOR, radius=2, blend=0.98)
 
@@ -31898,7 +31933,8 @@ class InvPhyTrainerWarp:
                 projected = {
                     "source": overlay_world["source"],
                     "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
-                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
+                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields, overlay_geometry),
+                    "hand_menu_hovered": bool(overlay_world.get("hand_menu_hovered", False)),
                     "origin_pixel": self._viewer_overlay_pixel_tuple(
                         overlay_geometry["origin_pixel"]
                     ),
@@ -33882,6 +33918,7 @@ class InvPhyTrainerWarp:
             "origin_world": origin_world,
             "is_hand_tracking": bool(controller_world.get("is_hand_tracking", False)),
             "hand_pointer_target_world": hand_pointer_target,
+            "hand_menu_hovered": bool(controller_world.get("hand_menu_hovered", False)),
             "direction_world": direction_world,
             "hit_world": hit_world,
             "ray_end_world": ray_end_world,
@@ -34063,7 +34100,8 @@ class InvPhyTrainerWarp:
             active_contact_only = True
 
         if (not line_visible and not marker_visible
-                and self._hand_pointer_pixel(overlay_world, projected_fields) is None):
+                and self._hand_pointer_pixel(overlay_world, projected_fields,
+                                             {"attach_active_pixel": attach_active_pixel}) is None):
             self._record_live_controller_active_overlay_counter(
                 "controller_overlay_dropped_no_visible_segment_count"
             )
@@ -34158,7 +34196,8 @@ class InvPhyTrainerWarp:
         projected = {
             "source": overlay_world["source"],
             "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
-            "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
+            "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields, overlay_geometry),
+            "hand_menu_hovered": bool(overlay_world.get("hand_menu_hovered", False)),
             "origin_pixel": origin_pixel,
             "end_pixel": end_pixel,
             "hit_pixel": projected_fields.get("hit_world"),
@@ -34331,7 +34370,8 @@ class InvPhyTrainerWarp:
                 projected = {
                     "source": overlay_world["source"],
                     "is_hand_tracking": bool(overlay_world.get("is_hand_tracking", False)),
-                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields),
+                    "hand_pointer_pixel": self._hand_pointer_pixel(overlay_world, projected_fields, overlay_geometry),
+                    "hand_menu_hovered": bool(overlay_world.get("hand_menu_hovered", False)),
                     "origin_pixel": origin_pixel,
                     "end_pixel": end_pixel,
                     "hit_pixel": projected_fields.get("hit_world"),
@@ -40769,42 +40809,77 @@ class InvPhyTrainerWarp:
                             )
                             else 0.0,
                         }
-                    selector_hovered_index = None
-                    selector_pointer_targets = {}
-                    if object_selector_world_corners is not None:
+                    selector_world_by_source = {
+                        "left": current_live_left_controller,
+                        "right": current_live_right_controller,
+                    }
+                    # Capture each free hand's aim endpoint once for both this
+                    # frame's UI input and its rendered fingertip. Physics may
+                    # advance between those two operations.
+                    selector_object_bounds = torch.as_tensor(
+                        np.stack([
+                            balanced_scene_input_cache["last_object_bounds_min_world"],
+                            balanced_scene_input_cache["last_object_bounds_max_world"],
+                        ]), dtype=x.dtype, device=x.device,
+                    )
+                    selector_hand_previews = {
+                        source: self._resolve_live_controller_preview_context(
+                            source, world, x[: self.num_all_points],
+                            selector_object_bounds[0], selector_object_bounds[1],
+                        )
+                        for source, world in selector_world_by_source.items()
+                        if world is not None and world.get("is_hand_tracking", False)
+                    }
+                    center_eye_pose_world, _ = self._build_immersive_center_scene_view(
+                        last_left_eye_pose_world, last_right_eye_pose_world,
+                        self._eye_sample_intrinsic(latest_sample.left_eye, eye_width, eye_height),
+                        self._eye_sample_intrinsic(latest_sample.right_eye, eye_width, eye_height),
+                    )
+
+                    def _refresh_selector_pointers():
+                        nonlocal object_selector_world_corners, object_selector_panel_open
+                        object_selector_panel_open = object_selector.is_open
+                        object_selector_world_corners = selector_panel_world_corners(
+                            center_eye_pose_world, is_open=object_selector_panel_open,
+                        )
+                        targets = {}
+                        hovered_index = None
                         for selector_source in ("left", "right"):
-                            selector_ray = (
-                                self._map_live_controller_menu_ray_into_scene(
+                            pointer_world = selector_world_by_source[selector_source]
+                            if pointer_world is None:
+                                continue
+                            if pointer_world.get("is_hand_tracking", False):
+                                selector_target = self._update_hand_selector_pointer(
+                                    pointer_world, selector_hand_previews.get(selector_source),
+                                    center_eye_pose_world, object_selector_world_corners,
+                                    is_open=object_selector_panel_open,
+                                    interaction_state=controller_interaction_state.get(selector_source),
+                                )
+                            else:
+                                selector_ray = self._map_live_controller_menu_ray_into_scene(
                                     selector_samples_by_source.get(selector_source),
                                     live_head_alignment,
                                 )
-                            )
-                            if selector_ray is None:
-                                continue
-                            selector_origin, selector_direction = selector_ray
-                            selector_target = selector_target_from_ray(
-                                selector_origin,
-                                selector_direction,
-                                object_selector_world_corners,
-                                is_open=object_selector_panel_open,
-                            )
-                            selector_pointer_targets[selector_source] = selector_target
-                            if selector_target in ("rope_game", "sloth"):
-                                selector_hovered_index = next(
-                                    i for i, choice in enumerate(object_selector.choices)
-                                    if choice.case_name == selector_target
+                                if selector_ray is None:
+                                    continue
+                                selector_origin, selector_direction = selector_ray
+                                selector_target = selector_target_from_ray(
+                                    selector_origin, selector_direction, object_selector_world_corners,
+                                    is_open=object_selector_panel_open,
                                 )
-                            # The visible UI ray and hit test use the same room
-                            # transform, including when controller calibration differs.
-                            if object_selector.is_open or selector_target is not None:
-                                pointer_world = (current_live_left_controller if selector_source == "left"
-                                                 else current_live_right_controller)
-                                if pointer_world is not None:
+                                if object_selector.is_open or selector_target is not None:
                                     pointer_world["ray_origin"] = torch.as_tensor(selector_origin, device=cfg.device)
                                     pointer_world["ray_direction"] = torch.as_tensor(selector_direction, device=cfg.device)
                                     pointer_world["direction"] = pointer_world["ray_direction"]
-                                    pointer_world["hand_pointer_target_world"] = selector_point_from_ray(
-                                        selector_origin, selector_direction, object_selector_world_corners)
+                            targets[selector_source] = selector_target
+                            if selector_target in ("rope_game", "sloth"):
+                                hovered_index = next(
+                                    i for i, choice in enumerate(object_selector.choices)
+                                    if choice.case_name == selector_target
+                                )
+                        return targets, hovered_index
+
+                    selector_pointer_targets, selector_hovered_index = _refresh_selector_pointers()
                     selector_events = object_selector.update(
                         time.perf_counter(),
                         selector_buttons_by_source,
@@ -40834,11 +40909,15 @@ class InvPhyTrainerWarp:
                         )
                     if bool(selector_events.get("cancelled", False)):
                         object_selector_frozen_sim_state = None
-                        object_selector_world_corners = None
                         print(
                             "[quest_display] object selector cancelled",
                             flush=True,
                         )
+                    if object_selector.is_open != object_selector_panel_open:
+                        # Opening/closing changes the panel size. Reproject the
+                        # hover and fingertip onto the panel that will be drawn,
+                        # without processing the same pinch a second time.
+                        selector_pointer_targets, _ = _refresh_selector_pointers()
                     # Capture a menu pinch through release, so closing the panel
                     # cannot also start grabbing the object behind it.
                     for selector_source in selector_events.get("consumed_sources", []):
@@ -41577,14 +41656,7 @@ class InvPhyTrainerWarp:
                 else:
                     # Reuse the existing stereo modal texture transport for both
                     # the floating button and expanded selector.
-                    center_eye_pose_world, _ = self._build_immersive_center_scene_view(
-                        last_left_eye_pose_world, last_right_eye_pose_world,
-                        left_intrinsic, right_intrinsic,
-                    )
-                    object_selector_panel_open = object_selector.is_open
-                    object_selector_world_corners = selector_panel_world_corners(
-                        center_eye_pose_world, is_open=object_selector_panel_open,
-                    )
+                    # Use the current-frame corners already used for input.
                     finished = bool(rope_game_overlay_state and
                                     rope_game_overlay_state.get("state") == "course_finished")
                     finished_time_s = (

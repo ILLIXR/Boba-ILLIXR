@@ -8,9 +8,11 @@ The simulation and its attachment model are unchanged.
 
 Tracked hands show red left-hand and blue right-hand pointers from the phone
 demo, with the decorative arrows removed and no visible laser. Each icon's
-index fingertip follows the actual aim target or menu position, independently
-of nearby and held attachment markers. Pinching adds a white fingertip indicator; releasing leaves
-the pointer visible. Pinch readiness controls selection without hiding valid
+index fingertip follows the actual aim target or menu position while the hand
+is open. During a grab it follows the exact contact marker, keeping the icon
+and grabbed point together even during large movements. Pinching or hovering a
+menu button adds a white fingertip indicator; releasing leaves the pointer
+visible. Pinch readiness controls selection without hiding valid
 hand poses. ILLIXR checks each hand's joint tracker and tracked wrist at the
 current display time. Losing one hand removes only its pointer and releases
 only its grab; the other hand continues working. Stale input releases both.
@@ -19,7 +21,7 @@ Hand grabs and tutorial navigation use the pinch button state supplied by the
 Quest adapter. Weak nonzero pinch values do not start or sustain a grab.
 Releasing the pinch, including loss of pinch readiness while the hand remains
 tracked, ends the grab after the existing two-frame release confirmation.
-No second pinch is required. The cursor keeps following the aim location;
+No second pinch is required. On release the cursor returns to the aim location;
 hovering a marker does not snap it to the attachment or start an interaction.
 
 The first startup slide explains pointing, pinching, moving, releasing, the
@@ -33,15 +35,23 @@ Game Select menu, and tracking recovery. Pinch and release once per page.
 | Select an interaction marker | Place the hand icon's fingertip on it | Point the controller ray |
 | Grab and move | Hold an index–thumb pinch and move the hand | Hold trigger and move controller |
 | Release | Open the pinch | Release trigger |
-| Open game selector | Point at the lower-right **Game Select** button and pinch | Point and trigger, or hold Y/B |
+| Open game selector | Place the fingertip on the upper-right **Game Select** button; pinch when it highlights | Point and trigger, or hold Y/B |
 | Choose Rope or Sloth | Point at its button and pinch | Point and trigger, or joystick/X/A then trigger |
 | Close selector | Point at **Close** and pinch | Point and trigger, or Y/B |
 
-The small Game Select button follows the lower-right of the view. Opening it
-shows a larger panel in front of the user and pauses object interaction. A
-pinch clicks only the button under that same hand's ray; pinching outside the
-panel does nothing. A menu click stays captured until release, including after
-closing the panel or switching objects. Selecting the current game restarts it.
+The small Game Select button follows the upper-right of the view. Opening it
+expands the panel leftward and downward from that corner and pauses object
+interaction. Move the icon's index fingertip onto a button: its fill turns teal
+and a white fingertip dot appears. Pinch and release to click it, then repeat
+for Rope, Sloth, or Close. Overlapping only the body of the hand icon does not
+select a button. Release a grabbed object before using that hand for the menu.
+
+Hit testing projects through the displayed hand aim endpoint onto the current
+frame's panel. The pointer uses that same panel point in both stereo eyes;
+menu targeting does not substitute a differently calibrated hand ray. A pinch
+clicks only the button under that hand's fingertip. A menu click stays captured
+until release, including after closing the panel or switching objects.
+Selecting the current game restarts it.
 
 Open the hand before the first pinch. Tracking loss or an input gap longer than
 250 ms releases hand input; an open-hand sample is required before pinching
@@ -67,7 +77,7 @@ client draws this pointing feedback above the menu. The aim ray remains an
 internal targeting calculation. Reinstall the matching APK for the per-hand
 joint tracking check and restart the desktop for the updated pointer rendering.
 If the APK already includes the per-hand joint presence check from ILLIXR
-`78ce974`, the pinch-release, cursor-motion, and tutorial changes only require
+`78ce974`, the pinch-release, cursor alignment, menu, and tutorial changes only require
 a desktop restart; another APK installation is unnecessary.
 
 ## Verification
@@ -81,9 +91,10 @@ PYTHONPATH="$PWD" python -m pytest -q test -ra
 
 The hand tests cover packet compatibility, grip movement through the existing
 grab path, release with nonzero pinch strength or unavailable readiness,
-independent left/right loss and spring-remap release, reacquisition, pointer
-motion through hover/grab feedback and laser suppression in both rendering paths,
-transport timeout, button geometry,
+independent left/right loss and spring-remap release, reacquisition, free
+hover/release motion, contact alignment during large vertical holds, and
+laser suppression in both rendering paths. They also cover transport timeout,
+upper-right button geometry, fingertip hit testing across calibration scales and head poses,
 same-hand selection, closing while pinching, and input carried across a game
 switch. The complete suite also exercises controller behavior and simulation.
 GPU-dependent tests require access to CUDA; optional Garden tests require the

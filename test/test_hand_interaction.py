@@ -332,7 +332,7 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
         eyes[source]["w2c_cv_t"] = torch.from_numpy(w2c)
         eyes[source]["intrinsic_t"] = torch.from_numpy(eyes[source]["intrinsic_np"])
 
-    def render(sample, feedback=None):
+    def render(sample, feedback=None, marker=None):
         overlays = []
         for source in ("left", "right"):
             world = trainer._convert_live_controller_to_world(
@@ -344,7 +344,8 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
                        "hit_world": None, "ray_end_world": world["ray_origin"] + 0.65 * world["ray_direction"]}
             overlay = trainer._build_live_controller_world_overlay(
                 source, world, None, None, None, preview_context=preview)
-            marker = torch.tensor([0.6, 0.1, 1.3])
+            if marker is None:
+                marker = torch.tensor([0.6, 0.1, 1.3])
             if feedback == "hover":
                 overlay.update(attach_candidate=True, attach_candidate_world=marker)
             elif feedback == "held":
@@ -392,8 +393,8 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
             centers[eye, source] = icon[:, 1].mean()
     for source in ("left", "right"):
         assert centers["left", source] > centers["right", source]
-    # Hovering or grabbing can move the attachment marker, but the hand cursor
-    # must continue to follow the same aim trajectory in both renderers/eyes.
+    # Hovering and the two-frame release confirmation must leave an open hand
+    # on its free aim trajectory, even if a contact marker still exists.
     for feedback in ("hover", "held"):
         with_marker = render(moved, feedback=feedback)
         for eye in eyes:
@@ -402,6 +403,22 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
                 actual = np.array([c for c in with_marker[eye] if tuple(c[7:10]) == color])
                 expected = np.array([c for c in moving[eye] if tuple(c[7:10]) == color])
                 np.testing.assert_allclose(actual, expected, atol=1e-4)
+    # During a real hold, large vertical grip motion must keep the fingertip
+    # exactly on the contact in BOTH eyes, even when the aim endpoint differs.
+    pinched = replace(moved, **{source: replace(getattr(moved, source),
+        select_available=True, select_pressed=True, select_value=1.0)
+        for source in ("left", "right")})
+    for height in (0.1, -0.5):
+        contact = torch.tensor([0.6, height, 1.3])
+        held = render(pinched, feedback="held", marker=contact)
+        for eye, state in eyes.items():
+            camera_contact = state["w2c_cv_np"] @ np.append(contact.numpy(), 1)
+            projected_contact = state["intrinsic_np"] @ camera_contact[:3]
+            projected_contact = projected_contact[:2] / projected_contact[2]
+            for source in ("left", "right"):
+                color, strokes = hand_pointer_strokes(source)
+                icon = np.array([c for c in held[eye] if tuple(c[7:10]) == color])
+                np.testing.assert_allclose(icon[0, 1:3] - strokes[0][:2], projected_contact, atol=1e-4)
     lost = replace(sample, left=replace(sample.left, active=False), right=replace(sample.right, active=False))
     assert render(lost) == {"left": [], "right": []}
     for missing in ("left", "right"):
@@ -434,6 +451,87 @@ def test_hand_cursor_uses_aim_or_menu_target_without_attachment_fallback():
     geometry = trainer._resolve_live_controller_projected_overlay_geometry(
         hand, {"hand_pointer_target_world": (30.0, 50.0)}, eye_label="left", height=240, width=320)
     assert geometry is not None
+    # Only a pinched, active grab uses the exact resolved marker (including its
+    # cached/offscreen fallback); an invisible held marker must not show raw aim.
+    fields["hand_pointer_target_world"] = (30.0, 50.0)
+    hand.update(attachment_active=True, select_pressed=True)
+    assert trainer._hand_pointer_pixel(hand, fields, {"attach_active_pixel": (41.0, 71.0)}) == (41.0, 71.0)
+    assert trainer._hand_pointer_pixel(hand, fields, {"attach_active_pixel": None}) is None
+    hand["select_pressed"] = False
+    assert trainer._hand_pointer_pixel(hand, fields, {"attach_active_pixel": (41.0, 71.0)}) == (30.0, 50.0)
+
+
+def test_game_select_stays_upper_right_and_expands_from_same_corner():
+    pose = np.eye(4, dtype=np.float32)
+    closed = selector_panel_world_corners(pose, is_open=False)
+    opened = selector_panel_world_corners(pose, is_open=True)
+    np.testing.assert_allclose(closed[1], opened[1], atol=1e-6)
+    # Entire expanded panel is right of and above the gaze center.
+    assert np.all(opened[:, :2] > 0)
+    assert closed[:, 0].mean() > 0.45
+    assert closed[:, 1].mean() > 0.4
+    # Both eyes retain a margin at the probe's 86-degree field of view.
+    for eye_x in (-0.032, 0.032):
+        for corners in (closed, opened):
+            tangents = (corners[:, :2] - [eye_x, 0]) / -corners[:, 2:3]
+            assert np.all(np.abs(tangents) < np.tan(0.75))
+
+
+@pytest.mark.parametrize("is_open", [False, True])
+@pytest.mark.parametrize("translation_scale", [0.25, 4.0])
+def test_menu_uses_displayed_hand_fingertip_with_calibration_and_head_motion(monkeypatch, is_open, translation_scale):
+    import torch
+    from types import SimpleNamespace
+    from qqtt.engine import trainer_warp
+
+    monkeypatch.setattr(trainer_warp, "cfg", SimpleNamespace(device="cpu"))
+    trainer = trainer_warp.InvPhyTrainerWarp.__new__(trainer_warp.InvPhyTrainerWarp)
+    hand = _sample().right
+    alignment = {"basis": torch.eye(3), "translation_scale": torch.tensor(translation_scale),
+                 "reference_live_right": torch.from_numpy(hand.grip_position.copy()),
+                 "reference_scene_right": torch.tensor([0.1, 0.2, -1.0])}
+    # Exercise a translated and rotated head, as well as the initial view.
+    for yaw, translation in ((0.0, [0, 0, 0]), (0.7, [1.2, 1.6, -0.2])):
+        pose = np.eye(4, dtype=np.float32)
+        pose[:3, :3] = [[np.cos(yaw), 0, np.sin(yaw)], [0, 1, 0], [-np.sin(yaw), 0, np.cos(yaw)]]
+        pose[:3, 3] = translation
+        corners = selector_panel_world_corners(pose, is_open=is_open)
+        for target, (left, top, right, bottom) in selector_button_rects(is_open).items():
+            point = corners[0] + ((left + right) / 2) * (corners[1] - corners[0])
+            point += ((top + bottom) / 2) * (corners[3] - corners[0])
+            # The visible free cursor is deeper than the panel and was produced
+            # by calibrated hand input. Its underlying ray can miss the menu.
+            aim_target = pose[:3, 3] + 2.0 * (point - pose[:3, 3])
+            aim_origin = aim_target + [0, 0, 0.65]
+            aim_live = hand.grip_position + (aim_origin - alignment["reference_scene_right"].numpy()) / translation_scale
+            world = trainer._convert_live_controller_to_world(
+                "right", replace(hand, aim_position=aim_live), alignment,
+                position_pose_role="grip", ray_pose_role="aim")
+            preview = {"ray_end_world": world["ray_origin"] + 0.65 * world["ray_direction"]}
+            original_ray = world["ray_origin"].clone(), world["ray_direction"].clone()
+            assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open) == target
+            assert world["hand_menu_hovered"]
+            np.testing.assert_allclose(world["hand_pointer_target_world"], point, atol=1e-6)
+            # At panel depth, each stereo eye sees the fingertip inside the SAME
+            # rectangle that selected the button. Calibration was not rewritten.
+            for offset in (-0.032, 0.032):
+                eye_origin = pose[:3, 3] + offset * pose[:3, 0]
+                assert selector_target_from_ray(eye_origin, world["hand_pointer_target_world"] - eye_origin,
+                                                corners, is_open=is_open) == target
+            np.testing.assert_array_equal(world["ray_origin"], original_ray[0])
+            np.testing.assert_array_equal(world["ray_direction"], original_ray[1])
+            world["select_pressed"] = True
+            assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open,
+                                                        interaction_state={"grab": True}) is None
+            assert not world["hand_menu_hovered"]
+            world["select_pressed"] = False
+            assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open,
+                                                        interaction_state={"grab": True}) == target
+        # Moving away clears the hover and restores the free cursor immediately.
+        preview = {"ray_end_world": torch.tensor(pose[:3, 3] - pose[:3, 2])}
+        assert trainer._update_hand_selector_pointer(world, preview, pose, corners, is_open=is_open) is None
+        assert not world["hand_menu_hovered"]
+        np.testing.assert_allclose(world["hand_pointer_target_world"], preview["ray_end_world"])
 
 
 def test_panel_gap_does_not_activate_adjacent_game():
