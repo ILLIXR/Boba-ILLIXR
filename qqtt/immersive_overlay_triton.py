@@ -52,8 +52,8 @@ if _TRITON_AVAILABLE:
         area = bbox_w * bbox_h
         offsets = block_index * block_size + tl.arange(0, block_size)
         active = offsets < area
-        local_x = offsets % bbox_w
-        local_y = offsets // bbox_w
+        local_x = offsets % tl.maximum(bbox_w, 1)
+        local_y = offsets // tl.maximum(bbox_w, 1)
         px_i = bbox_x0 + local_x
         py_i = bbox_y0 + local_y
         px = px_i.to(tl.float32)
@@ -70,7 +70,7 @@ if _TRITON_AVAILABLE:
         dist_y = tl.abs(py - closest_y)
         line_mask = tl.maximum(dist_x, dist_y) <= (radius + 0.5)
         is_line = command_type == 0
-        draw_mask = active & ((~is_line) | line_mask)
+        draw_mask = active & ((is_line & line_mask) | (command_type == 1))
 
         pixel_base = ((py_i * width + px_i) * 4).to(tl.int64)
         old_r = tl.load(frame_ptr + pixel_base + 0, mask=draw_mask, other=0).to(tl.float32)

@@ -424,9 +424,14 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
         assert len(idle[eye]) < OpenXRImmersiveBridge.OVERLAY_MAX_COMMANDS_PER_EYE
         for source in ("left", "right"):
             color, strokes = hand_pointer_strokes(source)
-            icon = np.array([c for c in idle[eye] if tuple(c[7:10]) == color])
-            moved_icon = np.array([c for c in moving[eye] if tuple(c[7:10]) == color])
+            icon = np.array([c for c in idle[eye] if c[0] == 0 and tuple(c[7:10]) == color])
+            moved_icon = np.array([c for c in moving[eye] if c[0] == 0 and tuple(c[7:10]) == color])
             assert len(icon) == len(strokes) > 0
+            if backend == "native":
+                headers = [c for c in idle[eye] if c[0] == 2 and c[3] == float(source == "right")]
+                assert len(headers) == 1
+                assert headers[0][4] == len(strokes)
+                np.testing.assert_allclose(headers[0][1:3], icon[0, 1:3] - strokes[0][:2], atol=1e-4)
             np.testing.assert_allclose(moved_icon[:, 1] - icon[:, 1], 180 * 0.08 / 1.75, atol=1e-4)
             centers[eye, source] = icon[:, 1].mean()
     for source in ("left", "right"):
@@ -455,15 +460,20 @@ def test_open_hand_icons_move_in_both_eyes_without_a_pinch(monkeypatch, backend)
             projected_contact = projected_contact[:2] / projected_contact[2]
             for source in ("left", "right"):
                 color, strokes = hand_pointer_strokes(source)
-                icon = np.array([c for c in held[eye] if tuple(c[7:10]) == color])
+                icon = np.array([c for c in held[eye] if c[0] == 0 and tuple(c[7:10]) == color])
                 np.testing.assert_allclose(icon[0, 1:3] - strokes[0][:2], projected_contact, atol=1e-4)
+                if backend == "native":
+                    headers = [c for c in held[eye] if c[0] == 2 and c[3] == float(source == "right")]
+                    assert len(headers) == 1 and headers[0][4] == len(strokes) + 1
+                    assert headers[0][10] == 1
+                    np.testing.assert_allclose(headers[0][1:3], projected_contact, atol=1e-4)
     lost = replace(sample, left=replace(sample.left, active=False), right=replace(sample.right, active=False))
     assert render(lost) == {"left": [], "right": []}
     for missing in ("left", "right"):
         one_hand = _gate()._prepare_hand_input(replace(_sample(missing=missing), received_monotonic_s=1.0))
         other = "right" if missing == "left" else "left"
         for commands in render(one_hand).values():
-            assert len(commands) == len(hand_pointer_strokes(other)[1])
+            assert len(commands) == len(hand_pointer_strokes(other)[1]) + int(backend == "native")
             assert all(tuple(c[7:10]) == hand_pointer_strokes(other)[0] for c in commands)
     controller = render(_sample(hand=False))
     for commands in controller.values():

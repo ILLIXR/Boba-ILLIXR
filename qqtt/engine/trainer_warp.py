@@ -31589,11 +31589,21 @@ class InvPhyTrainerWarp:
         if pixel is None:
             return
         color, strokes = hand_pointer_strokes(overlay["source"])
+        highlighted = bool(overlay.get("select_pressed", False) or overlay.get("hand_menu_hovered", False))
+        # Native Quest command 2 replaces the following fallback glyph with the
+        # runtime's animated mesh. The index tip uses this EXACT cursor pixel,
+        # including contact/menu projection. Older viewers ignore the metadata
+        # and continue drawing the ordinary lines/marker that follow it.
+        commands.append([
+            2.0, pixel[0], pixel[1], float(overlay["source"] == "right"),
+            float(len(strokes) + int(highlighted)), 72.0, 1.0, *map(float, color),
+            float(highlighted), 0.0, 0.0, 0.0,
+        ])
         for x0, y0, x1, y1 in strokes:
             self._append_viewer_overlay_line_command(
                 commands, (pixel[0] + x0, pixel[1] + y0),
                 (pixel[0] + x1, pixel[1] + y1), color, radius=0.5, blend=0.92)
-        if overlay.get("select_pressed", False) or overlay.get("hand_menu_hovered", False):
+        if highlighted:
             self._append_viewer_overlay_marker_command(
                 commands, pixel, self.LIVE_CONTROLLER_SELECT_COLOR, radius=2, blend=0.98)
 
@@ -32253,7 +32263,7 @@ class InvPhyTrainerWarp:
                 self._draw_marker_line(
                     frame, torch.tensor(command[1:3]), torch.tensor(command[3:5]),
                     command[7:10], radius=command[5], blend=command[6])
-            else:
+            elif command[0] == 1:
                 self._blend_marker(
                     frame, torch.tensor(command[1:3]), command[7:10],
                     radius=command[5], blend=command[6])

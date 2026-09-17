@@ -6,10 +6,12 @@ and readiness into the existing select channel. Hand movement uses the grip
 pose, with the same calibration and movement limit as controller interaction.
 The simulation and its attachment model are unchanged.
 
-Tracked hands show red left-hand and blue right-hand pointers from the phone
-demo, with the decorative arrows removed and no visible laser. Each icon's
+Tracked hands show a red left hand and blue right hand, with no arrows or
+visible laser. On the updated Quest client these are animated OpenXR meshes;
+the phone-demo icons remain a fallback for desktop viewers and older clients.
+Each hand's
 index fingertip follows the actual aim target or menu position while the hand
-is open. During a grab it follows the exact contact marker, keeping the icon
+is open. During a grab it follows the exact contact marker, keeping the hand
 and grabbed point together even during large movements. Pinching or hovering a
 menu button adds a white fingertip indicator; releasing leaves the pointer
 visible. Pinch readiness controls selection without hiding valid
@@ -32,7 +34,7 @@ Game Select menu, and tracking recovery. Pinch and release once per page.
 | Action | Hands | Controllers |
 | --- | --- | --- |
 | Advance tutorial / start when Ready | Pinch, release, then pinch for the next step | Trigger |
-| Select an interaction marker | Place the hand icon's fingertip on it | Point the controller ray |
+| Select an interaction marker | Place the hand's index fingertip on it | Point the controller ray |
 | Grab and move | Hold an index–thumb pinch and move the hand | Hold trigger and move controller |
 | Release | Open the pinch | Release trigger |
 | Open game selector | Place the fingertip on the upper-right **Game Select** button; pinch when it highlights | Point and trigger, or hold Y/B |
@@ -43,10 +45,10 @@ Game Select menu, and tracking recovery. Pinch and release once per page.
 The small Game Select button follows the upper-right of the view, inset toward
 the center for easier reach. Opening it
 expands the panel leftward and downward from that corner and pauses object
-interaction. Move the icon's index fingertip onto a button: its fill turns teal
+interaction. Move the index fingertip onto a button: its fill turns teal
 and a white fingertip dot appears. Pinch and release to click it, then repeat
 for Rope, Sloth, Close, or Exit Game. Close dismisses the menu; Exit Game ends
-the demo and requests native Quest client shutdown. Overlapping only the body of the hand icon does not
+the demo and requests native Quest client shutdown. Overlapping only the body of the hand does not
 select a button. Release a grabbed object before using that hand for the menu.
 
 Hit testing projects through the displayed hand aim endpoint onto the current
@@ -76,14 +78,22 @@ grip/aim/select fields carry hand input; no joint-distance gesture detector or
 additional OpenXR session is introduced. The menu uses the existing stereo
 bitmap overlay and ILLIXR texture transport.
 
-The hand icons reuse the [phone-demo artwork](assets/hand_pointer/README.md),
-cached as line commands in the existing native overlay. The updated ILLIXR
-client draws this pointing feedback above the menu. The aim ray remains an
-internal targeting calculation. Reinstall the matching APK for the per-hand
-joint tracking check and restart the desktop for the updated pointer rendering.
-If the APK already includes the per-hand joint presence check from ILLIXR
-`78ce974`, the pinch-release, cursor alignment, menu, and tutorial changes only require
-a desktop restart; another APK installation is unnecessary.
+The Quest client retrieves each runtime mesh through `XR_FB_hand_tracking_mesh`
+once and animates it using the existing `XR_EXT_hand_tracking` joint sample.
+Finger articulation and head-relative orientation follow the tracked hand.
+The mesh is a small cursor whose index fingertip stays at the existing aim,
+contact, or menu pixel in each eye. It does not move to the physical hand's
+absolute position. The client's current hand-presence check also hides a lost
+hand immediately; stale video cursor metadata expires after 250 ms.
+
+The existing 14-float overlay stream adds command type 2 for the cursor anchor,
+hand side, and fallback group length. Older native clients ignore it and draw
+the following [phone-demo artwork](assets/hand_pointer/README.md) as before.
+Updated clients replace that group with the locally animated mesh when available.
+Meshes and joints stay on the Quest; input and video packet layouts are unchanged.
+Feedback draws above the menu. The aim ray remains an internal targeting calculation.
+**Reinstall the updated Quest APK for animated meshes**, even if the APK from
+`78ce974` is installed, then restart the desktop with this companion revision.
 
 ## Verification
 
@@ -98,7 +108,8 @@ The hand tests cover packet compatibility, grip movement through the existing
 grab path, release with nonzero pinch strength or unavailable readiness,
 independent left/right loss and spring-remap release, reacquisition, free
 hover/release motion, contact alignment during large vertical holds, and
-laser suppression in both rendering paths. They also cover transport timeout,
+laser suppression in both rendering paths, and per-eye mesh cursor metadata.
+They also cover transport timeout,
 upper-right button geometry, fingertip hit testing across calibration scales and head poses,
 same-hand selection, closing while pinching, and input carried across a game
 switch. The complete suite also exercises controller behavior and simulation.
